@@ -40,7 +40,9 @@ ALLOWED_AUDIO_TYPES = {
     "audio/wav",
     "audio/x-wav",
     "audio/mp4",
+    "audio/m4a",
     "audio/x-m4a",
+    "video/mp4",
 }
 LONG_MEETING_SECONDS = 10 * 60
 ANALYSIS_CHUNK_SECONDS = 8 * 60
@@ -195,6 +197,11 @@ class AnalysisService:
             if isinstance(error, ProviderError) and error.reason == "empty_or_silent_audio":
                 raise ValueError(
                     "В записи не обнаружена речь: проверьте файл и уровень громкости."
+                ) from error
+            if isinstance(error, ProviderError) and error.reason == "invalid_audio":
+                raise ValueError(
+                    "Аудиофайл повреждён или контейнер не поддерживается. "
+                    "Пересохраните запись в MP3, WAV или M4A."
                 ) from error
             if not self.settings.allow_mock_fallback:
                 timings["transcription"] = self._elapsed_ms(stage_started)

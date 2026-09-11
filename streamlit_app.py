@@ -36,6 +36,19 @@ def api_get(path: str) -> requests.Response:
     return requests.get(f"{API_URL}{path}", timeout=REQUEST_TIMEOUT_SECONDS)
 
 
+def request_error_detail(error: requests.RequestException) -> str:
+    response = error.response
+    if response is None:
+        return str(error)
+    try:
+        detail = response.json().get("detail")
+    except (AttributeError, ValueError):
+        detail = None
+    if isinstance(detail, dict):
+        detail = detail.get("reason") or detail.get("message")
+    return str(detail or response.text or error)
+
+
 def load_presets() -> list[dict[str, Any]]:
     response = api_get("/api/v1/presets")
     response.raise_for_status()
@@ -267,8 +280,7 @@ if analyze_clicked:
         response.raise_for_status()
         st.session_state.last_result = response.json()
     except requests.RequestException as error:
-        detail = getattr(error.response, "text", None) if error.response is not None else None
-        st.error(f"Анализ не выполнен: {detail or error}")
+        st.error(f"Анализ не выполнен: {request_error_detail(error)}")
 
 with right:
     st.subheader("Результат")

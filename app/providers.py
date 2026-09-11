@@ -412,6 +412,7 @@ class FasterWhisperProvider:
             import tempfile
 
             _configure_windows_cuda_path()
+            from av.error import FFmpegError
             from faster_whisper import WhisperModel
             from faster_whisper.audio import decode_audio
 
@@ -426,12 +427,15 @@ class FasterWhisperProvider:
             compute_type = self.settings.local_asr_compute_type
             if device == "cpu" and compute_type == "int8_float16":
                 compute_type = "int8"
-            model_name = asr_model or self.model
-            model = WhisperModel(model_name, device=device, compute_type=compute_type)
             detected_language = None if language == "auto" else language
             sampling_rate = 16_000
-            waveform = decode_audio(str(temporary_path), sampling_rate=sampling_rate)
+            try:
+                waveform = decode_audio(str(temporary_path), sampling_rate=sampling_rate)
+            except (FFmpegError, ValueError) as error:
+                raise ProviderError("invalid_audio") from error
             duration_seconds = len(waveform) / sampling_rate
+            model_name = asr_model or self.model
+            model = WhisperModel(model_name, device=device, compute_type=compute_type)
             chunk_seconds = 8 * 60
             chunk_samples = chunk_seconds * sampling_rate
             audio_chunks = (

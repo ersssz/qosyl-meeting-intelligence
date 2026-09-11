@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.audit import AuditRepository
@@ -133,6 +134,94 @@ def test_audio_to_grounded_protocol_and_exports(settings) -> None:
         assert audit["result"]["transcript"] is None
         assert "RIFF-fake-audio" not in json.dumps(audit, ensure_ascii=False)
     assert transcriber.calls == 1
+
+
+class FlexibleAudioTranscriber:
+    name = "test-asr"
+    model = "test-whisper"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def transcribe(self, audio, filename, mime_type, language) -> Transcript:
+        del audio, filename, mime_type, language
+        self.calls += 1
+        return Transcript(
+            text="[seg_0001 0.0-4.0] Айдана: Решили запустить пилот в пятницу.",
+            language="unknown",
+            duration_seconds=4,
+            segments=[
+                TranscriptSegment(
+                    id="seg_0001",
+                    start_seconds=0,
+                    end_seconds=4,
+                    speaker="Айдана",
+                    text="Решили запустить пилот в пятницу.",
+                )
+            ],
+        )
+
+
+class InvalidAudioTranscriber:
+    name = "test-asr"
+    model = "test-whisper"
+
+    def transcribe(self, audio, filename, mime_type, language) -> Transcript:
+        del audio, filename, mime_type, language
+        raise ProviderError("invalid_audio")
+
+
+@pytest.mark.parametrize(
+    ("filename", "mime_type"),
+    [
+        ("phone.m4a", "audio/m4a"),
+        ("phone.m4a", "video/mp4"),
+        ("mono-8khz.wav", "audio/wav"),
+        ("loud-clipping.wav", "audio/x-wav"),
+    ],
+)
+def test_common_phone_and_resampled_audio_reach_asr(
+    settings, filename: str, mime_type: str
+) -> None:
+    transcriber = FlexibleAudioTranscriber()
+    with TestClient(
+        create_app(settings, MeetingAnalyzer(), transcription_provider=transcriber)
+    ) as client:
+        response = client.post(
+            "/api/v1/meetings/process",
+            files={"file": (filename, b"valid-container-placeholder", mime_type)},
+            data={"language": "ru"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["transcript"]["language"] == "unknown"
+    assert transcriber.calls == 1
+
+
+def test_zero_byte_audio_returns_422_before_asr(settings) -> None:
+    transcriber = FlexibleAudioTranscriber()
+    with TestClient(create_app(settings, transcription_provider=transcriber)) as client:
+        response = client.post(
+            "/api/v1/meetings/process",
+            files={"file": ("empty.m4a", b"", "audio/m4a")},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "audio file is empty"
+    assert transcriber.calls == 0
+
+
+def test_corrupt_container_returns_clear_422_without_fallback(settings) -> None:
+    with TestClient(
+        create_app(settings, transcription_provider=InvalidAudioTranscriber())
+    ) as client:
+        response = client.post(
+            "/api/v1/meetings/process",
+            files={"file": ("corrupt.m4a", b"not-an-audio-container", "audio/m4a")},
+        )
+
+    assert response.status_code == 422
+    assert "повреждён" in response.json()["detail"]
 
 
 def test_unsupported_audio_is_rejected_before_provider(settings) -> None:

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.audit import AuditRepository
@@ -87,10 +88,10 @@ class LongTranscriber:
         return Transcript(
             text=(
                 "[seg_0001 0.0-5.0] Speaker: Первое решение.\n"
-                "[seg_0002 500.0-505.0] Speaker: Второе решение."
+                "[seg_0002 800.0-805.0] Speaker: Второе решение."
             ),
             language="ru",
-            duration_seconds=650,
+            duration_seconds=901,
             segments=[
                 TranscriptSegment(
                     id="seg_0001",
@@ -101,8 +102,8 @@ class LongTranscriber:
                 ),
                 TranscriptSegment(
                     id="seg_0002",
-                    start_seconds=500,
-                    end_seconds=505,
+                    start_seconds=800,
+                    end_seconds=805,
                     speaker="Speaker",
                     text="Второе решение.",
                 ),
@@ -123,7 +124,7 @@ class CountingAnalyzer:
         return valid_analysis(evidence)
 
 
-def test_long_audio_uses_two_maps_and_one_reduce(settings) -> None:
+def test_fifteen_minute_audio_uses_two_maps_and_one_reduce(settings) -> None:
     analyzer = CountingAnalyzer()
     service = AnalysisService(
         settings,
@@ -154,11 +155,17 @@ class SilentTranscriber:
         raise ProviderError("empty_or_silent_audio")
 
 
-def test_silent_audio_returns_clear_422_without_mock_protocol(settings) -> None:
+@pytest.mark.parametrize(
+    ("filename", "audio"),
+    [("silence.wav", b"RIFF-silence"), ("noise.wav", b"RIFF-white-noise")],
+)
+def test_audio_without_speech_returns_clear_422_without_mock_protocol(
+    settings, filename: str, audio: bytes
+) -> None:
     with TestClient(create_app(settings, transcription_provider=SilentTranscriber())) as client:
         response = client.post(
             "/api/v1/meetings/process",
-            files={"file": ("silent.wav", b"RIFF-silence", "audio/wav")},
+            files={"file": (filename, audio, "audio/wav")},
             data={"language": "ru"},
         )
 
