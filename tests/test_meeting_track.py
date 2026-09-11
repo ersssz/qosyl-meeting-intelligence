@@ -81,7 +81,19 @@ class MeetingAnalyzer:
                     "Назначен отчёт.",
                     "Сроки названы.",
                 ],
-                "topics": [{"title": "Пилот", "key_points": ["Запуск"]}],
+                "topics": [
+                    {
+                        "title": "Пилот",
+                        "theses": [
+                            {
+                                "text": "Согласован запуск пилота",
+                                "segment_ids": ["seg_0001"],
+                                "evidence": reti,
+                                "confidence_score": 0.9,
+                            }
+                        ],
+                    }
+                ],
                 "decisions": [
                     {
                         "text": "Запустить пилот",

@@ -29,11 +29,7 @@ def build_markdown_report(result: AnalysisResult) -> str:
     if not result.findings:
         lines.append("No findings were emitted.")
     for index, finding in enumerate(result.findings, start=1):
-        review = (
-            "VERIFIED IN SOURCE"
-            if finding.verified_in_source
-            else "NEEDS HUMAN REVIEW"
-        )
+        review = "VERIFIED IN SOURCE" if finding.verified_in_source else "NEEDS HUMAN REVIEW"
         lines.extend(
             [
                 f"### {index}. {finding.title}",
@@ -50,6 +46,20 @@ def build_markdown_report(result: AnalysisResult) -> str:
     lines.extend(["## Meeting protocol", ""])
     for sentence in payload.get("executive_summary", []):
         lines.append(f"- {sentence}")
+    lines.extend(["", "### Темы и тезисы", ""])
+    for topic in payload.get("topics", []):
+        lines.append(f"#### {topic.get('title', '')}")
+        lines.append("")
+        for thesis in topic.get("theses", []):
+            verification = (
+                "ПРОВЕРЕНО" if thesis.get("verified_in_source", False) else "НУЖНА ПРОВЕРКА"
+            )
+            segment_ids = ", ".join(thesis.get("segment_ids", []))
+            lines.append(f"- {thesis.get('text', '')}")
+            lines.append(
+                f"  - Сегменты: `{segment_ids}` · {verification} · "
+                f"цитата: “{thesis.get('evidence', '')}”"
+            )
     lines.extend(["", "### Decisions", ""])
     for item in payload.get("decisions", []):
         lines.append(f"- {item.get('text', '')} — “{item.get('evidence', '')}”")
@@ -260,6 +270,32 @@ def build_pdf_export(result: AnalysisResult, font_path: Path) -> bytes:
     heading("Executive Summary")
     bullets([str(item) for item in payload.get("executive_summary", [])])
 
+    heading("Темы и тезисы")
+    topics = payload.get("topics", [])
+    if topics:
+        for topic in topics:
+            pdf.set_font("DejaVu", "B", 11)
+            pdf.multi_cell(0, 6, str(topic.get("title") or "Тема"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("DejaVu", "", 9)
+            for thesis in topic.get("theses", []):
+                review = (
+                    "ПОДТВЕРЖДЕНО"
+                    if thesis.get("verified_in_source", False)
+                    else "ТРЕБУЕТСЯ ПРОВЕРКА"
+                )
+                segment_ids = ", ".join(thesis.get("segment_ids", []))
+                pdf.multi_cell(
+                    0,
+                    5,
+                    f"• {thesis.get('text', '')}\n"
+                    f"  [{segment_ids}] «{thesis.get('evidence', '')}» — {review}",
+                    new_x="LMARGIN",
+                    new_y="NEXT",
+                )
+            pdf.ln(1)
+    else:
+        bullets([])
+
     heading("Решения")
     bullets(
         [
@@ -287,9 +323,7 @@ def build_pdf_export(result: AnalysisResult, font_path: Path) -> bytes:
                 row.cell(str(item.get("due_date") or "Не указан"))
                 row.cell(str(item.get("priority") or "medium"))
                 review = (
-                    "ТРЕБУЕТСЯ ПРОВЕРКА"
-                    if item.get("needs_human_review", True)
-                    else "ПОДТВЕРЖДЕНО"
+                    "ТРЕБУЕТСЯ ПРОВЕРКА" if item.get("needs_human_review", True) else "ПОДТВЕРЖДЕНО"
                 )
                 row.cell(f"«{item.get('evidence', '')}»\n{review}")
         pdf.ln(3)

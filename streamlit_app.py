@@ -216,8 +216,10 @@ def _payload_display_value(value: object) -> str:
 
 
 def _is_compact_payload_value(value: object) -> bool:
-    return value is None or isinstance(value, (bool, int, float)) or (
-        isinstance(value, str) and len(value) <= 80
+    return (
+        value is None
+        or isinstance(value, (bool, int, float))
+        or (isinstance(value, str) and len(value) <= 80)
     )
 
 
@@ -284,6 +286,22 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
     for sentence in payload.get("executive_summary", []):
         st.write(f"• {sentence}")
 
+    st.markdown("#### Темы и тезисы")
+    topics = payload.get("topics", [])
+    if not topics:
+        st.caption("Не обнаружено")
+    for topic in topics:
+        with st.container(border=True):
+            st.markdown(f"##### {topic.get('title', 'Тема')}")
+            for thesis in topic.get("theses", []):
+                st.write(f"• {thesis.get('text', '')}")
+                segment_ids = ", ".join(thesis.get("segment_ids", []))
+                st.caption(f"Сегменты: {segment_ids} · Основание: {thesis.get('evidence', '')}")
+                if thesis.get("verified_in_source", False):
+                    st.success("Проверено по источнику")
+                else:
+                    st.warning("Нужна проверка")
+
     protocol_columns = st.columns(3)
     sections = (
         ("Решения", "decisions"),
@@ -319,9 +337,7 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
                 "Owner": item.get("owner") or "Не назначен",
                 "Task": item.get("task") or "—",
                 "Due": due_date or "Не указан",
-                "Priority": priority_labels.get(
-                    str(item.get("priority", "medium")), "средний"
-                ),
+                "Priority": priority_labels.get(str(item.get("priority", "medium")), "средний"),
                 "Основание": item.get("evidence") or "—",
                 "Verified": verified,
                 "Needs human review": needs_review,
@@ -357,9 +373,7 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
                 f'<tr class="{row_classes}">'
                 + "".join(
                     f'<td class="{css_class}">{html.escape(str(value))}</td>'
-                    for value, css_class in zip(
-                        display_cells, cell_classes, strict=True
-                    )
+                    for value, css_class in zip(display_cells, cell_classes, strict=True)
                 )
                 + "</tr>"
             )
@@ -397,9 +411,7 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
                     "Priority": st.column_config.TextColumn("Приоритет"),
                     "Основание": st.column_config.TextColumn("Основание"),
                     "Verified": st.column_config.CheckboxColumn("Проверено"),
-                    "Needs human review": st.column_config.CheckboxColumn(
-                        "Нужна проверка"
-                    ),
+                    "Needs human review": st.column_config.CheckboxColumn("Нужна проверка"),
                 },
                 use_container_width=True,
                 hide_index=True,
@@ -490,9 +502,7 @@ with left:
         height=245,
         label_visibility="collapsed",
     )
-    analyze_clicked = st.button(
-        "Analyze meeting", type="primary", use_container_width=True
-    )
+    analyze_clicked = st.button("Analyze meeting", type="primary", use_container_width=True)
 
 if analyze_clicked:
     try:
@@ -542,8 +552,7 @@ with right:
         timings = result.get("timings_ms", {})
         mode = (
             "Cloud"
-            if "gemini"
-            in {result.get("provider"), result.get("transcription_provider")}
+            if "gemini" in {result.get("provider"), result.get("transcription_provider")}
             else "Self-hosted"
         )
         guard_ms = timings.get("pii_masking", 0) + timings.get("injection_guard", 0)
@@ -568,24 +577,23 @@ with right:
             f'<span class="mode">{mode}</span></div>'
             f'<div class="perf-label">Производительность</div>'
             f'<div class="perf-total" aria-label="Итого: {total_ms:.0f} ms">'
-            f'Итого: {total_ms:.0f} <small>ms</small></div>'
+            f"Итого: {total_ms:.0f} <small>ms</small></div>"
             f'<div class="perf-stages">'
             + "".join(
                 f'<div class="perf-stage">{label}: {value:.0f} ms</div>'
                 for label, value in stage_values
             )
             + f'</div><div class="perf-egress">Network egress: '
-            f'{result.get("network_egress_bytes", 0):,} bytes<br>'
-            f'Важность: <b>{severity}</b> · Обоснование: <b>{grounding_label}</b> · '
-            f'Провайдер: <b>{result["provider"]}</b></div></div>',
+            f"{result.get('network_egress_bytes', 0):,} bytes<br>"
+            f"Важность: <b>{severity}</b> · Обоснование: <b>{grounding_label}</b> · "
+            f"Провайдер: <b>{result['provider']}</b></div></div>",
             unsafe_allow_html=True,
         )
         st.write(result["summary"])
         if result.get("transcript"):
             transcript = result["transcript"]
             with st.expander(
-                f"Transcript · {transcript['language']} · "
-                f"{transcript['duration_seconds']:.1f} sec",
+                f"Transcript · {transcript['language']} · {transcript['duration_seconds']:.1f} sec",
                 expanded=True,
             ):
                 for segment in transcript["segments"]:
@@ -654,23 +662,31 @@ with right:
             pdf_response.raise_for_status()
             download_columns = st.columns(5)
             download_columns[0].download_button(
-                "Protocol (.md)", report_response.content,
-                file_name=f"report-{result['trace_id']}.md", mime="text/markdown",
+                "Protocol (.md)",
+                report_response.content,
+                file_name=f"report-{result['trace_id']}.md",
+                mime="text/markdown",
                 use_container_width=True,
             )
             download_columns[1].download_button(
-                "Protocol (.json)", json_response.content,
-                file_name=f"meeting-{result['trace_id']}.json", mime="application/json",
+                "Protocol (.json)",
+                json_response.content,
+                file_name=f"meeting-{result['trace_id']}.json",
+                mime="application/json",
                 use_container_width=True,
             )
             download_columns[2].download_button(
-                "Action Items (.csv)", csv_response.content,
-                file_name=f"actions-{result['trace_id']}.csv", mime="text/csv",
+                "Action Items (.csv)",
+                csv_response.content,
+                file_name=f"actions-{result['trace_id']}.csv",
+                mime="text/csv",
                 use_container_width=True,
             )
             download_columns[3].download_button(
-                "Protocol (.pdf)", pdf_response.content,
-                file_name=f"meeting-{result['trace_id']}.pdf", mime="application/pdf",
+                "Protocol (.pdf)",
+                pdf_response.content,
+                file_name=f"meeting-{result['trace_id']}.pdf",
+                mime="application/pdf",
                 use_container_width=True,
             )
         except requests.RequestException:

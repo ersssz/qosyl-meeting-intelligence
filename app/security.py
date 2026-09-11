@@ -10,9 +10,7 @@ _IBAN_RE = re.compile(
     r"(?<![A-Z0-9])KZ[ \t]*\d[ \t]*\d(?:[ \t]*[A-Z\d]){16}(?![A-Z\d])",
     re.IGNORECASE,
 )
-_LONG_NUMBER_RE = re.compile(
-    r"(?<!\d)(?<!\d[ .-])\d(?:[ .-]?\d){12,}(?![ .-]?\d)"
-)
+_LONG_NUMBER_RE = re.compile(r"(?<!\d)(?<!\d[ .-])\d(?:[ .-]?\d){12,}(?![ .-]?\d)")
 _PHONE_RE = re.compile(
     r"(?<!\w)(?:[+\uFF0B]?[7\uFF17]|[8\uFF18])"
     r"[\s()-]*\d{3}[\s()-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)"
@@ -204,9 +202,7 @@ _MARKUP_SYSTEM_TAG_RE = re.compile(
 def detect_prompt_injection(text: str) -> InjectionDecision:
     normalized = _normalize_security_text(text)
     compact = _NON_WORD_RE.sub("", normalized)
-    reasons = [
-        name for name, pattern in _COMPACT_INJECTION_RULES if pattern.search(compact)
-    ]
+    reasons = [name for name, pattern in _COMPACT_INJECTION_RULES if pattern.search(compact)]
     if _MARKUP_SYSTEM_TAG_RE.search(normalized):
         reasons.append("markup.system_tag")
     reasons = list(dict.fromkeys(reasons))
@@ -240,14 +236,52 @@ def verify_findings(findings: list[Finding], masked_source: str) -> tuple[list[F
     return verified, bool(verified) and all(item.verified_in_source for item in verified)
 
 
-def verify_payload_evidence(
-    payload: dict, masked_source: str
-) -> tuple[dict, bool]:
+def verify_payload_evidence(payload: dict, masked_source: str) -> tuple[dict, bool]:
     """Ground every evidence-bearing meeting item without removing model output."""
 
     normalized_source = normalize_for_grounding(masked_source)
     grounded = True
     verified_payload = dict(payload)
+
+    topics = payload.get("topics", [])
+    if not isinstance(topics, list):
+        grounded = False
+    else:
+        verified_topics = []
+        for raw_topic in topics:
+            if not isinstance(raw_topic, dict):
+                grounded = False
+                verified_topics.append(raw_topic)
+                continue
+            topic = dict(raw_topic)
+            theses = topic.get("theses", [])
+            if not isinstance(theses, list) or not theses:
+                grounded = False
+                topic["theses"] = theses if isinstance(theses, list) else []
+                verified_topics.append(topic)
+                continue
+            verified_theses = []
+            for raw_thesis in theses:
+                if not isinstance(raw_thesis, dict):
+                    grounded = False
+                    verified_theses.append(raw_thesis)
+                    continue
+                thesis = dict(raw_thesis)
+                evidence = str(thesis.get("evidence", ""))
+                normalized_evidence = normalize_for_grounding(evidence)
+                is_verified = bool(normalized_evidence) and normalized_evidence in normalized_source
+                original_score = float(thesis.get("confidence_score", 0.8))
+                thesis["verified_in_source"] = is_verified
+                thesis["needs_human_review"] = not is_verified
+                thesis["confidence_score"] = (
+                    original_score if is_verified else min(original_score * 0.5, 0.49)
+                )
+                grounded = grounded and is_verified
+                verified_theses.append(thesis)
+            topic["theses"] = verified_theses
+            verified_topics.append(topic)
+        verified_payload["topics"] = verified_topics
+
     for collection_name in ("decisions", "open_questions", "action_items", "risks"):
         collection = payload.get(collection_name, [])
         if not isinstance(collection, list):
@@ -273,4 +307,3 @@ def verify_payload_evidence(
             verified_items.append(item)
         verified_payload[collection_name] = verified_items
     return verified_payload, grounded
-
