@@ -17,6 +17,7 @@ from app.models import (
 from app.providers import AnalysisProvider, TranscriptionProvider
 from app.reporting import (
     build_csv_export,
+    build_ics_export,
     build_json_export,
     build_markdown_report,
     build_pdf_export,
@@ -153,6 +154,15 @@ def create_app(
             content=build_csv_export(result),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="actions-{trace_id}.csv"'},
+        )
+
+    @application.get("/api/v1/export/{trace_id}/ics")
+    def export_ics(trace_id: str) -> Response:
+        result = _stored_result(trace_id)
+        return Response(
+            content=build_ics_export(result),
+            media_type="text/calendar; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="actions-{trace_id}.ics"'},
         )
 
     @application.get("/api/v1/export/{trace_id}/pdf")

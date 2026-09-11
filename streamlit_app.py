@@ -6,6 +6,7 @@ from typing import Any
 import requests
 import streamlit as st
 
+from app.reporting import calendar_action_counts
 from app.task_profile import TASK_NAME, TASK_TAGLINE
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -399,10 +400,21 @@ with right:
             json_response = api_get(f"/api/v1/export/{result['trace_id']}/json")
             csv_response = api_get(f"/api/v1/export/{result['trace_id']}/csv")
             pdf_response = api_get(f"/api/v1/export/{result['trace_id']}/pdf")
+            calendar_included, calendar_total, calendar_omitted = calendar_action_counts(payload)
+            calendar_message = (
+                f"В календарь добавлено {calendar_included} из {calendar_total} поручений. "
+                f"{calendar_omitted} поручений без срока не включены — "
+                "срок не прозвучал в записи."
+            )
+            ics_content = b""
+            if calendar_included:
+                ics_response = api_get(f"/api/v1/export/{result['trace_id']}/ics")
+                ics_response.raise_for_status()
+                ics_content = ics_response.content
             json_response.raise_for_status()
             csv_response.raise_for_status()
             pdf_response.raise_for_status()
-            download_columns = st.columns(4)
+            download_columns = st.columns(5)
             download_columns[0].download_button(
                 "Protocol (.md)", report_response.content,
                 file_name=f"report-{result['trace_id']}.md", mime="text/markdown",
