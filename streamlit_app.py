@@ -19,22 +19,24 @@ st.markdown(
     """
     <style>
       :root {
-        --color-primary:#0A0A0A;
-        --color-secondary:#737373;
-        --color-tertiary:#2563EB;
-        --color-neutral:#FAFAFA;
-        --color-surface:#FFFFFF;
-        --color-border:#E5E5E5;
-        --color-warn:#B45309;
-        --color-danger:#B91C1C;
-        --color-ok:#15803D;
+        --color-primary:#F1F5F9;
+        --color-secondary:#BCCBDB;
+        --color-tertiary:#00B4D8;
+        --color-accent:#00D4FF;
+        --color-neutral:#0A0E1A;
+        --color-surface:#111827;
+        --color-surface-elevated:#172033;
+        --color-border:rgba(148,163,184,0.15);
+        --color-warn:#F59E0B;
+        --color-danger:#F43F5E;
+        --color-ok:#22C55E;
         --font-h1:Inter,system-ui,sans-serif;
-        --font-h1-size:2rem;
-        --font-h1-weight:600;
-        --font-h1-spacing:-0.02em;
+        --font-h1-size:2.25rem;
+        --font-h1-weight:800;
+        --font-h1-spacing:-0.035em;
         --font-h2:Inter,system-ui,sans-serif;
         --font-h2-size:1.25rem;
-        --font-h2-weight:600;
+        --font-h2-weight:700;
         --font-body:Inter,system-ui,sans-serif;
         --font-body-size:1rem;
         --font-body-line:1.6;
@@ -44,15 +46,16 @@ st.markdown(
         --font-metric:ui-monospace,SFMono-Regular,monospace;
         --font-metric-size:2.5rem;
         --font-metric-weight:600;
-        --rounded-sm:6px;
-        --rounded-md:10px;
+        --rounded-sm:10px;
+        --rounded-md:16px;
+        --rounded-pill:9999px;
         --spacing-sm:8px;
         --spacing-md:16px;
         --spacing-lg:32px;
         --button-primary-bg:var(--color-tertiary);
         --button-primary-text:#FFFFFF;
-        --button-primary-rounded:var(--rounded-sm);
-        --button-primary-padding:12px;
+        --button-primary-rounded:var(--rounded-pill);
+        --button-primary-padding:13px 26px;
         --card-bg:var(--color-surface);
         --card-rounded:var(--rounded-md);
         --card-padding:20px;
@@ -66,7 +69,7 @@ st.markdown(
         font-family:var(--font-body); font-size:var(--font-body-size);
         line-height:var(--font-body-line);
       }
-      .block-container {padding:var(--spacing-lg) var(--spacing-md); max-width:1100px;}
+      .block-container {padding:var(--spacing-lg) var(--spacing-md); max-width:1180px;}
       .stMarkdown, .stMarkdown p, p, li, label, [data-testid="stCaptionContainer"] {
         color:var(--color-primary); font-family:var(--font-body);
         font-size:var(--font-body-size); line-height:var(--font-body-line) !important;
@@ -76,19 +79,33 @@ st.markdown(
       h2, h3, h4, h5 {font:var(--font-h2-weight) var(--font-h2-size)/1.35 var(--font-h2) !important;
                       margin-top:var(--spacing-lg) !important;
                       color:var(--color-primary) !important;}
-      .hero {padding:var(--card-padding); border:1px solid var(--color-border);
-             border-radius:var(--card-rounded); background:var(--card-bg);
-             color:var(--color-primary);}
-      .hero p {color:var(--color-secondary) !important; margin:var(--spacing-sm) 0 0;}
+      .hero {position:relative; overflow:hidden; padding:32px 34px;
+             border:1px solid var(--color-border); border-radius:24px;
+             background:linear-gradient(135deg,var(--color-neutral),
+                        var(--color-surface-elevated)); color:var(--color-primary);}
+      .hero::after {content:""; position:absolute; width:240px; height:240px;
+                    right:-90px; top:-120px; border-radius:var(--rounded-pill);
+                    background:var(--color-tertiary); opacity:.12; filter:blur(48px);}
+      .hero h1 .hero-brand {color:var(--color-accent);}
+      .hero p {color:var(--color-secondary) !important; margin:var(--spacing-sm) 0 0;
+               max-width:720px;}
+      .hero-eyebrow {display:inline-flex; align-items:center; gap:var(--spacing-sm);
+                     margin-bottom:var(--spacing-md); color:var(--color-accent);
+                     font:700 var(--font-label-size)/1.4 var(--font-label);
+                     letter-spacing:var(--font-label-spacing); text-transform:uppercase;}
+      .hero-eyebrow::before {content:""; width:8px; height:8px;
+                             border-radius:var(--rounded-pill);
+                             background:var(--color-accent);}
       .status-strip {margin:var(--spacing-sm) 0 var(--spacing-lg);
                      padding:var(--spacing-sm) var(--spacing-md);
-                     border-bottom:1px solid var(--color-border);
+                     border:1px solid var(--color-border); border-radius:var(--rounded-pill);
+                     background:var(--color-surface);
                      color:var(--color-secondary);
                      font:500 var(--font-label-size)/1.5 var(--font-metric);
                      overflow-wrap:anywhere;}
       .status-strip a {color:var(--color-tertiary); text-decoration:none;}
       .badge {display:inline-block; padding:var(--spacing-sm) var(--spacing-md);
-              border-radius:var(--rounded-sm); font-weight:600;
+              border-radius:var(--rounded-pill); font-weight:700;
               letter-spacing:var(--font-label-spacing); color:var(--button-primary-text);}
       .ok {background:var(--color-ok);} .blocked {background:var(--color-danger);}
       .fallback {background:var(--color-warn);}
@@ -97,7 +114,8 @@ st.markdown(
       .perf {margin:var(--spacing-md) 0 var(--spacing-lg); padding:var(--card-padding);
              border-radius:var(--card-rounded); background:var(--card-bg);
              border:1px solid var(--color-border); border-left:3px solid var(--color-tertiary);
-             color:var(--color-primary);}
+             color:var(--color-primary); box-shadow:0 18px 55px color-mix(in srgb,
+             var(--color-tertiary) 8%,transparent);}
       .perf-badges {float:right;} .mode, .language {display:inline-block;
              padding:var(--spacing-sm) var(--spacing-md); border-radius:var(--rounded-sm);
              font-weight:600; border:1px solid var(--color-border);}
@@ -114,7 +132,7 @@ st.markdown(
       .perf-stages {display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
                     gap:var(--spacing-sm);}
       .perf-stage {padding:var(--spacing-sm); border-radius:var(--rounded-sm);
-                   background:var(--color-neutral); border:1px solid var(--color-border);
+                   background:var(--color-surface-elevated); border:1px solid var(--color-border);
                    color:var(--color-primary); font-size:var(--font-label-size);
                    font-weight:600; white-space:normal; overflow-wrap:anywhere;}
       .perf-egress {margin-top:var(--spacing-md); padding-top:var(--spacing-md);
@@ -141,7 +159,7 @@ st.markdown(
       table.qosyl-actions {width:100%; table-layout:fixed; border-collapse:collapse;
                            font-size:var(--font-body-size); line-height:var(--font-body-line);
                            background:var(--color-surface);}
-      .qosyl-actions th {background:var(--color-neutral); color:var(--color-primary);
+      .qosyl-actions th {background:var(--color-surface-elevated); color:var(--color-primary);
                          padding:var(--spacing-md) var(--spacing-sm); text-align:left;
                          overflow-wrap:anywhere; border-bottom:1px solid var(--color-border);}
       .qosyl-actions td {padding:var(--spacing-md) var(--spacing-sm);
@@ -158,7 +176,7 @@ st.markdown(
       }
       .qosyl-actions .yes {color:var(--color-ok); font-weight:600;}
       .qosyl-actions .review-cell {color:var(--color-danger); font-weight:600;}
-      .stButton > button {border-radius:var(--rounded-sm) !important;
+      .stButton > button {border-radius:var(--rounded-pill) !important;
                           border:1px solid var(--color-border) !important;
                           background:var(--color-surface) !important;
                           color:var(--color-primary) !important; box-shadow:none !important;
@@ -167,6 +185,7 @@ st.markdown(
       .stButton > button:hover {border-color:var(--color-tertiary) !important;
                                 color:var(--color-tertiary) !important;}
       .stButton > button[kind="primary"] {background:var(--button-primary-bg) !important;
+                                           border-radius:var(--button-primary-rounded) !important;
                                            color:var(--button-primary-text) !important;}
       .stButton > button[kind="primary"] p {color:var(--button-primary-text) !important;}
       .stButton > button[kind="primary"]:hover {background:var(--button-primary-bg) !important;}
@@ -182,6 +201,7 @@ st.markdown(
         border-radius:var(--rounded-sm) !important;
         color:var(--color-primary) !important;
       }
+      [data-testid="stStatusWidget"] {display:none !important;}
       @media (max-width:900px) {
         .perf-badges {float:none; display:block; margin-bottom:.65rem;}
         .perf-stages {grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -479,7 +499,9 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
 
 
 st.markdown(
-    f'<div class="hero"><h1>{TASK_NAME}</h1><p>{TASK_TAGLINE}</p></div>',
+    '<div class="hero"><div class="hero-eyebrow">AI Steppe Tech Hack · Track 01</div>'
+    f"<h1><span class='hero-brand'>Qosyl</span>{TASK_NAME.removeprefix('Qosyl')}</h1>"
+    f"<p>{TASK_TAGLINE}</p></div>",
     unsafe_allow_html=True,
 )
 
@@ -524,7 +546,7 @@ if "preset_id" not in st.session_state:
 if "language" not in st.session_state:
     st.session_state.language = presets[0]["language"] if presets else "auto"
 
-st.subheader("1-click demo presets")
+st.subheader("Демо-сценарии")
 preset_columns = st.columns(max(len(presets), 1))
 for column, preset in zip(preset_columns, presets, strict=False):
     with column:
