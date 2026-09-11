@@ -50,12 +50,18 @@ def create_app(
 
     @application.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        analysis_provider = (
+            "mock" if resolved_settings.mock_llm else resolved_settings.analysis_provider
+        )
+        model = (
+            resolved_settings.local_llm_model
+            if analysis_provider == "ollama"
+            else resolved_settings.gemini_model
+        )
         return HealthResponse(
             mode="mock" if resolved_settings.mock_llm else "live",
-            model=resolved_settings.gemini_model,
-            analysis_provider=(
-                "mock" if resolved_settings.mock_llm else resolved_settings.analysis_provider
-            ),
+            model=model,
+            analysis_provider=analysis_provider,
             transcription_provider=(
                 "mock"
                 if resolved_settings.mock_llm

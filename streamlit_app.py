@@ -301,15 +301,19 @@ with right:
             in {result.get("provider"), result.get("transcription_provider")}
             else "Self-hosted"
         )
+        guard_ms = timings.get("pii_masking", 0) + timings.get("injection_guard", 0)
         stage_text = " · ".join(
-            f"{name}: {value:.0f} ms"
-            for name, value in timings.items()
-            if name != "total"
+            (
+                f"ASR: {timings.get('transcription', 0):.0f} ms",
+                f"Guard: {guard_ms:.0f} ms",
+                f"LLM: {timings.get('llm', 0):.0f} ms",
+                f"Grounding: {timings.get('grounding', 0):.0f} ms",
+            )
         )
         st.markdown(
             f'<div class="perf"><span class="mode">{mode}</span>'
             f'<strong>Итого: {timings.get("total", 0):.0f} ms</strong><br>'
-            f'{stage_text}<br><b>Network egress:</b> '
+            f'<b>{stage_text}</b><br><b>Network egress:</b> '
             f'{result.get("network_egress_bytes", 0):,} bytes</div>',
             unsafe_allow_html=True,
         )

@@ -61,7 +61,15 @@ def test_streamlit_renders_task_specific_payload(monkeypatch) -> None:
             "injection_reasons": [],
         },
         "grounded": True,
-        "timings_ms": {"total": 12.5},
+        "timings_ms": {
+            "transcription": 4.0,
+            "pii_masking": 1.0,
+            "injection_guard": 2.0,
+            "llm": 5.0,
+            "grounding": 0.5,
+            "total": 12.5,
+        },
+        "network_egress_bytes": 321,
         "provider": "mock",
         "model": "test-model",
         "fallback_reason": None,
@@ -111,6 +119,14 @@ def test_streamlit_renders_task_specific_payload(monkeypatch) -> None:
     assert metrics["Category"] == "security"
     assert metrics["Risk Score"] == "55"
     assert any("Проверить источник" in element.value for element in page.markdown)
+    perf = next(element.value for element in page.markdown if "Network egress" in element.value)
+    assert "Итого: 12 ms" in perf
+    assert "ASR: 4 ms" in perf
+    assert "Guard: 3 ms" in perf
+    assert "LLM: 5 ms" in perf
+    assert "Grounding: 0 ms" in perf
+    assert "321 bytes" in perf
+    assert "Self-hosted" in perf
     assert any(element.label == "Raw task payload (JSON)" for element in page.expander)
 
 

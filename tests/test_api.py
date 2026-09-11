@@ -52,6 +52,19 @@ def test_full_mock_happy_path_and_report(settings) -> None:
         assert pdf.content.startswith(b"%PDF")
 
 
+def test_health_reports_active_ollama_model(settings) -> None:
+    settings.mock_llm = False
+    settings.analysis_provider = "ollama"
+    settings.local_llm_model = "qwen3:4b"
+
+    with TestClient(create_app(settings)) as client:
+        health = client.get("/health").json()
+
+    assert health["analysis_provider"] == "ollama"
+    assert health["model"] == "qwen3:4b"
+    assert health["mode"] == "live"
+
+
 def test_unknown_preset_returns_422(settings) -> None:
     with TestClient(create_app(settings)) as client:
         response = client.post(
