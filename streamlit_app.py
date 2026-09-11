@@ -505,36 +505,55 @@ with left:
     analyze_clicked = st.button("Analyze meeting", type="primary", use_container_width=True)
 
 if analyze_clicked:
+    progress_steps = (
+        "Транскрибация (локально)",
+        "Маскирование PII",
+        "Анализ модели",
+        "Сверка цитат с источником",
+    )
+    first_active_step = 0 if audio_file is not None else 1
+    progress = st.status(progress_steps[first_active_step], expanded=True)
+    if audio_file is None:
+        progress.write("✓ Транскрибация (локально) — используется готовый текст")
     try:
-        if audio_file is not None:
-            response = requests.post(
-                f"{API_URL}/api/v1/meetings/process",
-                files={
-                    "file": (
-                        audio_file.name,
-                        audio_file.getvalue(),
-                        audio_file.type or "application/octet-stream",
-                    )
-                },
-                data={
-                    "language": st.session_state.language,
-                    "asr_model": "medium" if quality_mode else "small",
-                },
-                timeout=max(REQUEST_TIMEOUT_SECONDS, 120),
-            )
-        else:
-            response = requests.post(
-                f"{API_URL}/api/v1/analyze",
-                json={
-                    "text": text,
-                    "language": st.session_state.language,
-                    "preset_id": st.session_state.preset_id,
-                },
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
+        with st.spinner(progress_steps[first_active_step], show_time=True):
+            if audio_file is not None:
+                response = requests.post(
+                    f"{API_URL}/api/v1/meetings/process",
+                    files={
+                        "file": (
+                            audio_file.name,
+                            audio_file.getvalue(),
+                            audio_file.type or "application/octet-stream",
+                        )
+                    },
+                    data={
+                        "language": st.session_state.language,
+                        "asr_model": "medium" if quality_mode else "small",
+                    },
+                    timeout=max(REQUEST_TIMEOUT_SECONDS, 120),
+                )
+            else:
+                response = requests.post(
+                    f"{API_URL}/api/v1/analyze",
+                    json={
+                        "text": text,
+                        "language": st.session_state.language,
+                        "preset_id": st.session_state.preset_id,
+                    },
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
         response.raise_for_status()
+        for index, step in enumerate(progress_steps):
+            if index < first_active_step:
+                continue
+            progress.write(f"✓ {step}")
+            if index + 1 < len(progress_steps):
+                progress.update(label=progress_steps[index + 1], state="running")
+        progress.update(label="Протокол готов", state="complete", expanded=False)
         st.session_state.last_result = response.json()
     except requests.RequestException as error:
+        progress.update(label="Обработка остановлена", state="error", expanded=True)
         st.error(f"Анализ не выполнен: {request_error_detail(error)}")
 
 with right:
