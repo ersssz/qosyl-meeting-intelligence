@@ -38,6 +38,22 @@
 | Grounding | 0.187 мс |
 | **Total для питча** | **30.834 с** |
 
+## Clean `run.ps1` pitch benchmark
+
+Профиль полностью загружен из локального `.env`, без process override: `LLM_TIMEOUT_SECONDS=60`, `LOCAL_ASR_MODEL=small`. Новый файл `samples/meeting_ru_2min.m4a` фактически имеет длительность **72.768 с** (1:12.8), а не 2 минуты.
+
+- HTTP 200, `status=ok`, `grounded=true`, fallback отсутствует
+- Trace ID: `ff904a0a-675c-42d9-8346-6c2f78f4abb9`
+- ASR/LLM: `faster-whisper/small + gemini-3.5-flash`
+- Schema repair не потребовался
+
+| Этап | Время |
+|---|---:|
+| ASR | 8.197 с |
+| LLM | 31.868 с |
+| Grounding | 0.318 мс |
+| **Total для питча** | **40.071 с** |
+
 ## Demo profile: local ASR + Gemini
 
 - ASR: `faster-whisper/small`, CUDA, `int8_float16`, `beam_size=1`, VAD

@@ -43,6 +43,8 @@ LOCAL_ASR_MODEL=small
 LOCAL_ASR_COMPUTE_TYPE=int8_float16
 LOCAL_ASR_BEAM_SIZE=1
 SEQUENTIAL_MODEL_LOADING=true
+LLM_TIMEOUT_SECONDS=60
+UI_REQUEST_TIMEOUT_SECONDS=300
 ```
 
 В обычном аудиосценарии Gemini вызывается один раз — только для анализа. При ошибке
@@ -53,6 +55,7 @@ Pydantic-схемы допускается ровно один schema-repair з�
 Локальный/self-hosted режим:
 
 ```powershell
+Copy-Item .env.self-hosted.example .env
 ollama pull qwen3:4b
 uv sync --extra local
 ```
@@ -69,6 +72,8 @@ LOCAL_ASR_DEVICE=auto
 LOCAL_ASR_COMPUTE_TYPE=int8_float16
 LOCAL_ASR_BEAM_SIZE=1
 SEQUENTIAL_MODEL_LOADING=true
+LLM_TIMEOUT_SECONDS=180
+UI_REQUEST_TIMEOUT_SECONDS=300
 ```
 
 `AIRGAP_MODE=1` запрещает вызов Gemini до сетевого обращения. Целевой профиль на 8 ГБ

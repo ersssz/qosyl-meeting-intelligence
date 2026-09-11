@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -16,6 +17,18 @@ def test_gemini_model_is_read_from_environment(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("GEMINI_MODEL", "gemini-stage-model")
     settings = Settings(_env_file=None, database_path=tmp_path / "audit.db")
     assert settings.gemini_model == "gemini-stage-model"
+
+
+def test_committed_env_profiles_have_safe_timeouts() -> None:
+    root = Path(__file__).parents[1]
+    demo = Settings(_env_file=root / ".env.example")
+    self_hosted = Settings(_env_file=root / ".env.self-hosted.example")
+
+    assert demo.local_asr_model == "small"
+    assert demo.llm_timeout_seconds == 60
+    assert self_hosted.analysis_provider == "ollama"
+    assert self_hosted.airgap_mode is True
+    assert self_hosted.llm_timeout_seconds == 180
 
 
 def test_self_hosted_timeout_can_exceed_cloud_default(tmp_path) -> None:

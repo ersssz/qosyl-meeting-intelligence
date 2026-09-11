@@ -27,7 +27,7 @@ services:
     build: .
     environment:
       API_URL: http://api:8000
-      UI_REQUEST_TIMEOUT_SECONDS: "${UI_REQUEST_TIMEOUT_SECONDS:-20}"
+      UI_REQUEST_TIMEOUT_SECONDS: "${UI_REQUEST_TIMEOUT_SECONDS:-300}"
     command:
       [
         "streamlit",
