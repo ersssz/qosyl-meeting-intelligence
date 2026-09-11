@@ -1,4 +1,4 @@
-# Qosyl Meeting Intelligence — two_digits
+# Qosyl Meeting Intelligence - two_digits
 
 AI Steppe Tech Hack, Track 01: MP3/WAV/M4A → транскрипт → проверяемый протокол →
 решения, открытые вопросы, поручения, риски и экспорт.
@@ -47,7 +47,7 @@ LLM_TIMEOUT_SECONDS=60
 UI_REQUEST_TIMEOUT_SECONDS=300
 ```
 
-В обычном аудиосценарии Gemini вызывается один раз — только для анализа. При ошибке
+В обычном аудиосценарии Gemini вызывается один раз - только для анализа. При ошибке
 Pydantic-схемы допускается ровно один schema-repair запрос с исходным ответом модели
 и текстом ошибки. На 429, таймауте или сетевой ошибке включается заметный
 `FALLBACK`, причина записывается в аудит. Локальный SQLite guard соблюдает RPM/RPD.
@@ -117,15 +117,15 @@ Invoke-RestMethod -Method Post `
   -Body '{"text":"Айдана: Запускаем пилот в пятницу.","language":"ru"}'
 ```
 
-- `POST /api/v1/meetings/process` — multipart-аудио.
-- `POST /api/v1/analyze` — готовый текстовый транскрипт.
-- `GET /api/v1/presets` — четыре демонстрационных сценария.
-- `GET /api/v1/quota` — локальный счётчик Gemini и circuit breaker.
-- `GET /api/v1/audit/{trace_id}` — безопасный технический аудит.
-- `GET /api/v1/report/{trace_id}` — Markdown-протокол.
-- `GET /api/v1/export/{trace_id}/json` — структурный протокол.
-- `GET /api/v1/export/{trace_id}/csv` — таблица Action Items.
-- `GET /api/v1/export/{trace_id}/pdf` — обязательный Unicode PDF-протокол.
+- `POST /api/v1/meetings/process` - multipart-аудио.
+- `POST /api/v1/analyze` - готовый текстовый транскрипт.
+- `GET /api/v1/presets` - четыре демонстрационных сценария.
+- `GET /api/v1/quota` - локальный счётчик Gemini и circuit breaker.
+- `GET /api/v1/audit/{trace_id}` - безопасный технический аудит.
+- `GET /api/v1/report/{trace_id}` - Markdown-протокол.
+- `GET /api/v1/export/{trace_id}/json` - структурный протокол.
+- `GET /api/v1/export/{trace_id}/csv` - таблица Action Items.
+- `GET /api/v1/export/{trace_id}/pdf` - обязательный Unicode PDF-протокол.
 
 ## Конфиденциальность
 
