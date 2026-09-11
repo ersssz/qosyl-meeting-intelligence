@@ -167,6 +167,7 @@ def test_streamlit_action_items_show_evidence_and_review(monkeypatch) -> None:
                 }
             ],
             "risks": [],
+            "detected_languages": ["ru", "kk"],
         },
     }
 
@@ -205,6 +206,8 @@ def test_streamlit_action_items_show_evidence_and_review(monkeypatch) -> None:
     assert actions.loc[0, "Основание"] == evidence
     assert bool(actions.loc[0, "Needs human review"]) is True
     assert bool(actions.loc[0, "Verified"]) is False
+    perf = next(element.value for element in page.markdown if "Network egress" in element.value)
+    assert "Language: mixed" in perf
 
 
 def test_streamlit_shows_clear_audio_error_detail(monkeypatch) -> None:

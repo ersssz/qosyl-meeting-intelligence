@@ -24,8 +24,9 @@ st.markdown(
       .verified {color: #15803d; font-weight: 700;} .review {color: #b45309; font-weight: 700;}
       .perf {margin:.7rem 0 1rem; padding:1rem 1.15rem; border-radius:14px;
              background:#eef2ff; border:2px solid #6366f1; color:#172554;}
-      .perf strong {font-size:1.35rem;} .mode {float:right; background:#172554; color:white;
+      .perf strong {font-size:1.35rem;} .mode, .language {float:right; color:white;
              padding:.28rem .65rem; border-radius:999px; font-weight:800;}
+      .mode {background:#172554;} .language {background:#0f766e; margin-right:.45rem;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -61,6 +62,22 @@ def status_badge(status: str) -> None:
         f'<span class="badge {safe_status}">{safe_status.upper()}</span>',
         unsafe_allow_html=True,
     )
+
+
+def result_language(result: dict[str, Any]) -> str:
+    payload = result.get("payload")
+    detected = payload.get("detected_languages", []) if isinstance(payload, dict) else []
+    languages = {
+        str(language).casefold()
+        for language in detected
+        if str(language).casefold() in {"ru", "kk", "en"}
+    }
+    transcript = result.get("transcript")
+    if isinstance(transcript, dict) and transcript.get("language") in {"ru", "kk", "en"}:
+        languages.add(transcript["language"])
+    if "mixed" in {str(language).casefold() for language in detected} or len(languages) > 1:
+        return "mixed"
+    return next(iter(languages), "unknown")
 
 
 def _payload_label(key: object) -> str:
@@ -310,8 +327,10 @@ with right:
                 f"Grounding: {timings.get('grounding', 0):.0f} ms",
             )
         )
+        language = result_language(result)
         st.markdown(
             f'<div class="perf"><span class="mode">{mode}</span>'
+            f'<span class="language">Language: {language}</span>'
             f'<strong>Итого: {timings.get("total", 0):.0f} ms</strong><br>'
             f'<b>{stage_text}</b><br><b>Network egress:</b> '
             f'{result.get("network_egress_bytes", 0):,} bytes</div>',
