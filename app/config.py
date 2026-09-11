@@ -18,13 +18,15 @@ class Settings(BaseSettings):
     airgap_mode: bool = False
     local_llm_base_url: str = "http://127.0.0.1:11434"
     local_llm_model: str = "qwen3:4b"
+    local_llm_num_ctx: int = Field(default=4_096, ge=2_048, le=32_768)
+    local_llm_num_predict: int = Field(default=2_048, ge=128, le=4_096)
     local_asr_model: str = "small"
     local_asr_device: Literal["auto", "cuda", "cpu"] = "auto"
     local_asr_compute_type: str = "int8_float16"
     local_asr_beam_size: int = Field(default=1, ge=1, le=10)
     sequential_model_loading: bool = True
     audio_max_bytes: int = Field(default=30_000_000, ge=1, le=200_000_000)
-    llm_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     gemini_rpm_limit: int | None = Field(default=None, ge=1)
     gemini_rpd_limit: int | None = Field(default=None, ge=1)
     quota_rate_limit_cooldown_seconds: int = Field(default=60, ge=1, le=3_600)

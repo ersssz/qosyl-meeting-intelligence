@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import os
 from contextlib import suppress
+from importlib import import_module
 from pathlib import Path
 from typing import Protocol
 
@@ -98,6 +99,34 @@ def _normalize_transcript(
     )
 
 
+def _portable_json_schema(model: type[BaseModel]) -> dict:
+    source = model.model_json_schema()
+    definitions = source.get("$defs", {})
+
+    def simplify(value):
+        if isinstance(value, list):
+            return [simplify(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if "$ref" in value:
+            return simplify(definitions[value["$ref"].rsplit("/", 1)[-1]])
+        if "anyOf" in value:
+            options = [simplify(item) for item in value["anyOf"]]
+            concrete = next(item for item in options if item.get("type") != "null")
+            result = dict(concrete)
+            result["type"] = [concrete["type"], "null"]
+            return result
+        result = {}
+        for key, item in value.items():
+            if key == "properties":
+                result[key] = {name: simplify(schema) for name, schema in item.items()}
+            elif key in {"type", "items", "required", "enum"}:
+                result[key] = simplify(item)
+        return result
+
+    return simplify(source)
+
+
 class MockProvider:
     name = "mock"
 
@@ -173,9 +202,10 @@ class GeminiProvider:
 
     @classmethod
     def _classify_error(cls, error: Exception) -> str:
-        if cls._status_code(error) == 429 or "429" in str(error):
+        status_code = cls._status_code(error)
+        if status_code == 429 or "429" in str(error):
             return "rate_limited"
-        if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        if status_code in {408, 504} or isinstance(error, (TimeoutError, httpx.TimeoutException)):
             return "timeout"
         if isinstance(error, (ConnectionError, OSError, httpx.NetworkError)):
             return "network_error"
@@ -197,19 +227,24 @@ class GeminiProvider:
                     timeout=int(self.settings.llm_timeout_seconds * 1_000)
                 ),
             )
-            response = client.models.generate_content(
+            response = client.interactions.create(
                 model=self.settings.gemini_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    response_schema=TaskAnalysis,
-                    temperature=0.1,
-                ),
+                input=contents,
+                system_instruction=SYSTEM_PROMPT,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": _portable_json_schema(TaskAnalysis),
+                },
+                generation_config={"temperature": 0.1},
+                store=False,
             )
             return self._parse_response(response)
         except ValidationError as error:
-            raw = str(getattr(locals().get("response"), "text", ""))
+            response = locals().get("response")
+            raw = str(
+                getattr(response, "output_text", None) or getattr(response, "text", "")
+            )
             raise SchemaValidationError(raw, str(error)) from error
         except ProviderError:
             raise
@@ -222,7 +257,8 @@ class GeminiProvider:
         if isinstance(parsed, TaskAnalysis):
             result = parsed
         elif parsed is None:
-            result = TaskAnalysis.model_validate_json(str(getattr(response, "text", "")))
+            raw = getattr(response, "output_text", None) or getattr(response, "text", "")
+            result = TaskAnalysis.model_validate_json(str(raw))
         else:
             result = TaskAnalysis.model_validate(parsed)
         return ProviderAnalysis(
@@ -260,15 +296,17 @@ class GeminiProvider:
                     timeout=int(self.settings.llm_timeout_seconds * 1_000)
                 ),
             )
-            response = client.models.generate_content(
+            response = client.interactions.create(
                 model=self.settings.gemini_model,
-                contents=repair_payload,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    response_schema=TaskAnalysis,
-                    temperature=0,
-                ),
+                input=repair_payload,
+                system_instruction=SYSTEM_PROMPT,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": _portable_json_schema(TaskAnalysis),
+                },
+                generation_config={"temperature": 0},
+                store=False,
             )
             return self._parse_response(response)
         except ProviderError:
@@ -313,7 +351,7 @@ class GeminiTranscriptionProvider(GeminiProvider):
                 ],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=_GeminiTranscript,
+                    response_json_schema=_portable_json_schema(_GeminiTranscript),
                     temperature=0,
                 ),
             )
@@ -333,6 +371,23 @@ class GeminiTranscriptionProvider(GeminiProvider):
             raise
         except Exception as error:
             raise ProviderError(self._classify_error(error)) from error
+
+
+def _configure_windows_cuda_path(platform: str | None = None) -> None:
+    if (platform or os.name) != "nt":
+        return
+    current = os.environ.get("PATH", "")
+    entries = current.split(os.pathsep)
+    known = {os.path.normcase(entry) for entry in entries}
+    cuda_bins = []
+    for package in ("nvidia.cublas", "nvidia.cudnn"):
+        module = import_module(package)
+        directory = str((Path(next(iter(module.__path__))) / "bin").resolve())
+        if os.path.normcase(directory) not in known:
+            cuda_bins.append(directory)
+            known.add(os.path.normcase(directory))
+    if cuda_bins:
+        os.environ["PATH"] = os.pathsep.join([*cuda_bins, *entries])
 
 
 class FasterWhisperProvider:
@@ -356,6 +411,7 @@ class FasterWhisperProvider:
         try:
             import tempfile
 
+            _configure_windows_cuda_path()
             from faster_whisper import WhisperModel
             from faster_whisper.audio import decode_audio
 
@@ -444,8 +500,12 @@ class OllamaProvider:
             "stream": False,
             "think": False,
             "keep_alive": 0 if self.settings.sequential_model_loading else "5m",
-            "format": TaskAnalysis.model_json_schema(),
-            "options": {"temperature": 0.1},
+            "format": _portable_json_schema(TaskAnalysis),
+            "options": {
+                "temperature": 0.1,
+                "num_ctx": self.settings.local_llm_num_ctx,
+                "num_predict": self.settings.local_llm_num_predict,
+            },
             "messages": messages,
         }
         response = httpx.post(
