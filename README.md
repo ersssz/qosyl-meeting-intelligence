@@ -1,4 +1,4 @@
-# Qosyl Meeting Intelligence — two_digits (#6)
+# Qosyl Meeting Intelligence — two_digits
 
 AI Steppe Tech Hack, Track 01: MP3/WAV/M4A → транскрипт → проверяемый протокол →
 решения, открытые вопросы, поручения, риски и экспорт.
