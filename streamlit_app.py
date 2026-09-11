@@ -144,7 +144,9 @@ def render_meeting_protocol(payload: dict[str, Any]) -> None:
                     "Task": item.get("task"),
                     "Due": item.get("due_date") or "Not stated",
                     "Priority": item.get("priority"),
+                    "Основание": item.get("evidence", ""),
                     "Verified": item.get("verified_in_source", False),
+                    "Needs human review": item.get("needs_human_review", True),
                 }
                 for item in actions
             ],

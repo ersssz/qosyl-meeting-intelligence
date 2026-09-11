@@ -1,9 +1,20 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.audit import AuditRepository
 from app.main import create_app
-from app.models import AnalysisRequest, Finding, ProviderAnalysis, Transcript, TranscriptSegment
+from app.models import (
+    AnalysisRequest,
+    AnalysisResult,
+    Finding,
+    ProviderAnalysis,
+    SecurityInfo,
+    Transcript,
+    TranscriptSegment,
+)
 from app.providers import ProviderError, SchemaValidationError
+from app.reporting import build_pdf_export
 from app.service import AnalysisService
 
 
@@ -153,3 +164,52 @@ def test_silent_audio_returns_clear_422_without_mock_protocol(settings) -> None:
 
     assert response.status_code == 422
     assert "не обнаружена речь" in response.json()["detail"]
+
+
+def test_pdf_wraps_long_action_evidence_with_review_marker() -> None:
+    evidence = (
+        "Дословное основание поручения с казахскими глифами ә ө ұ ғ қ і и подробным "
+        "контекстом встречи. "
+        * 18
+    ).strip()
+    result = AnalysisResult(
+        trace_id="pdf-long-evidence",
+        status="ok",
+        summary="Протокол готов.",
+        severity="medium",
+        findings=[],
+        security=SecurityInfo(
+            input_was_masked=False,
+            masked_input="[MASKED INPUT NOT PERSISTED]",
+            pii_detected=0,
+            injection_detected=False,
+        ),
+        grounded=False,
+        timings_ms={"total": 1.0},
+        provider="mock",
+        model="test-model",
+        payload={
+            "meeting_title": "Проверка длинного основания",
+            "executive_summary": ["Первое.", "Второе.", "Третье."],
+            "decisions": [],
+            "open_questions": [],
+            "action_items": [
+                {
+                    "owner": "Ответственный",
+                    "task": "Подготовить подробный отчёт",
+                    "due_date": None,
+                    "priority": "high",
+                    "evidence": evidence,
+                    "verified_in_source": False,
+                    "needs_human_review": True,
+                }
+            ],
+            "risks": [],
+        },
+    )
+    font_path = Path(__file__).parents[1] / "assets" / "fonts" / "DejaVuSans.ttf"
+
+    pdf = build_pdf_export(result, font_path)
+
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 20_000

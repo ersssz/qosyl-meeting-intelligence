@@ -149,15 +149,14 @@ def build_pdf_export(result: AnalysisResult, font_path: Path) -> bytes:
     heading(str(payload.get("meeting_title") or "Протокол встречи"), 18)
     pdf.set_font("DejaVu", "", 9)
     transcript = result.transcript
-    duration = transcript.duration_seconds if transcript else 0
+    duration = f"{transcript.duration_seconds / 60:.1f} мин" if transcript else "не сохранена"
     header_lines = [
         f"Trace ID: {result.trace_id}",
         f"Статус: {result.status.upper()} · Проверка цитат: "
         f"{'пройдена' if result.grounded else 'требуется человек'}",
         f"ASR: {result.transcription_provider or '—'} / "
         f"{result.transcription_model or '—'} · Анализ: {result.provider} / {result.model}",
-        f"Длительность: {duration / 60:.1f} мин · "
-        f"Network egress: {result.network_egress_bytes} bytes",
+        f"Длительность: {duration} · Network egress: {result.network_egress_bytes} bytes",
     ]
     for line in header_lines:
         pdf.multi_cell(0, 5, line, new_x="LMARGIN", new_y="NEXT")
@@ -177,14 +176,14 @@ def build_pdf_export(result: AnalysisResult, font_path: Path) -> bytes:
     heading("Поручения")
     actions = payload.get("action_items", [])
     if actions:
-        pdf.set_font("DejaVu", "", 8)
+        pdf.set_font("DejaVu", "", 7)
         with pdf.table(
-            col_widths=(28, 68, 30, 25),
-            line_height=5,
-            text_align=("LEFT", "LEFT", "LEFT", "LEFT"),
+            col_widths=(18, 34, 17, 15, 48),
+            line_height=4,
+            text_align=("LEFT", "LEFT", "LEFT", "LEFT", "LEFT"),
         ) as table:
             header = table.row()
-            for label in ("Ответственный", "Задача", "Срок", "Приоритет"):
+            for label in ("Ответственный", "Задача", "Срок", "Приоритет", "Основание"):
                 header.cell(label)
             for item in actions:
                 row = table.row()
@@ -192,6 +191,12 @@ def build_pdf_export(result: AnalysisResult, font_path: Path) -> bytes:
                 row.cell(str(item.get("task") or ""))
                 row.cell(str(item.get("due_date") or "Не указан"))
                 row.cell(str(item.get("priority") or "medium"))
+                review = (
+                    "ТРЕБУЕТСЯ ПРОВЕРКА"
+                    if item.get("needs_human_review", True)
+                    else "ПОДТВЕРЖДЕНО"
+                )
+                row.cell(f"«{item.get('evidence', '')}»\n{review}")
         pdf.ln(3)
     else:
         bullets([])
