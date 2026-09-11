@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
@@ -14,7 +15,12 @@ from app.models import (
     PresetPublic,
 )
 from app.providers import AnalysisProvider, TranscriptionProvider
-from app.reporting import build_csv_export, build_json_export, build_markdown_report
+from app.reporting import (
+    build_csv_export,
+    build_json_export,
+    build_markdown_report,
+    build_pdf_export,
+)
 from app.service import AnalysisService, AnalysisUnavailable
 from app.task_profile import TASK_NAME, public_presets
 
@@ -84,6 +90,7 @@ def create_app(
     async def process_meeting(
         file: Annotated[UploadFile, File()],
         language: Annotated[Language, Form()] = "auto",
+        asr_model: Annotated[str, Form(pattern="^(small|medium)$")] = "small",
     ) -> AnalysisResult:
         try:
             audio = await file.read(resolved_settings.audio_max_bytes + 1)
@@ -92,6 +99,7 @@ def create_app(
                 filename=file.filename or "meeting.wav",
                 mime_type=file.content_type or "",
                 language=language,
+                asr_model=asr_model,
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -139,6 +147,16 @@ def create_app(
             content=build_csv_export(result),
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="actions-{trace_id}.csv"'},
+        )
+
+    @application.get("/api/v1/export/{trace_id}/pdf")
+    def export_pdf(trace_id: str) -> Response:
+        result = _stored_result(trace_id)
+        font_path = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "DejaVuSans.ttf"
+        return Response(
+            content=build_pdf_export(result, font_path),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="meeting-{trace_id}.pdf"'},
         )
 
     def _stored_result(trace_id: str) -> AnalysisResult:

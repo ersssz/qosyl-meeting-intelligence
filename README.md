@@ -22,27 +22,32 @@ Ctrl+C завершает оба процесса. Если порт занят,
 
 ## Режимы провайдеров
 
-Безопасный mock по умолчанию не расходует квоту:
+Тестовый mock-профиль не расходует квоту:
 
 ```env
 MOCK_LLM=1
 ALLOW_MOCK_FALLBACK=1
-GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
-Рабочий облачный режим хакатона:
+Демо-профиль: локальная транскрибация и Gemini только для точного анализа:
 
 ```env
 MOCK_LLM=0
 ANALYSIS_PROVIDER=gemini
-TRANSCRIPTION_PROVIDER=gemini
+TRANSCRIPTION_PROVIDER=faster-whisper
 AIRGAP_MODE=0
-GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash
 GEMINI_API_KEY=your-key
+LOCAL_ASR_MODEL=small
+LOCAL_ASR_COMPUTE_TYPE=int8_float16
+LOCAL_ASR_BEAM_SIZE=1
+SEQUENTIAL_MODEL_LOADING=true
 ```
 
-Аудиосценарий использует максимум два Gemini-вызова: транскрибация и структурный
-анализ. Retry отсутствует. На 429, таймауте или сетевой ошибке включается заметный
+В обычном аудиосценарии Gemini вызывается один раз — только для анализа. При ошибке
+Pydantic-схемы допускается ровно один schema-repair запрос с исходным ответом модели
+и текстом ошибки. На 429, таймауте или сетевой ошибке включается заметный
 `FALLBACK`, причина записывается в аудит. Локальный SQLite guard соблюдает RPM/RPD.
 
 Локальный/self-hosted режим:
@@ -59,13 +64,17 @@ TRANSCRIPTION_PROVIDER=faster-whisper
 AIRGAP_MODE=1
 LOCAL_LLM_BASE_URL=http://127.0.0.1:11434
 LOCAL_LLM_MODEL=qwen3:4b
-LOCAL_ASR_MODEL=medium
+LOCAL_ASR_MODEL=small
 LOCAL_ASR_DEVICE=auto
 LOCAL_ASR_COMPUTE_TYPE=int8_float16
+LOCAL_ASR_BEAM_SIZE=1
+SEQUENTIAL_MODEL_LOADING=true
 ```
 
-`AIRGAP_MODE=1` запрещает вызов Gemini до сетевого обращения. На RTX 3050 Ti Laptop
-4 GB безопасный стартовый профиль — `medium` INT8 для ASR и Qwen 3 4B для протокола.
+`AIRGAP_MODE=1` запрещает вызов Gemini до сетевого обращения. Целевой профиль на 8 ГБ
+VRAM — `small` INT8/FP16 для ASR и Qwen 3 4B. Кнопка «Качество» временно выбирает
+`medium` для сложной казахской речи. При последовательной загрузке Whisper удаляется
+до LLM, а Ollama получает `think=false` и `keep_alive=0`.
 
 ## Конвейер
 
@@ -73,6 +82,7 @@ LOCAL_ASR_COMPUTE_TYPE=int8_float16
 Audio validation (MP3/WAV/M4A, size/type)
   → TranscriptionProvider: Gemini | faster-whisper | deterministic mock
   → timestamped Transcript segments
+  → >10 min: decoded audio → 8-minute ASR chunks → per-chunk map → reduce merge
   → PII masking + RU/KZ/EN injection guard
   → MeetingAnalysisProvider: Gemini | Ollama | deterministic mock
   → Pydantic structured protocol
@@ -110,6 +120,7 @@ Invoke-RestMethod -Method Post `
 - `GET /api/v1/report/{trace_id}` — Markdown-протокол.
 - `GET /api/v1/export/{trace_id}/json` — структурный протокол.
 - `GET /api/v1/export/{trace_id}/csv` — таблица Action Items.
+- `GET /api/v1/export/{trace_id}/pdf` — обязательный Unicode PDF-протокол.
 
 ## Конфиденциальность
 

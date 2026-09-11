@@ -11,16 +11,18 @@ class Settings(BaseSettings):
 
     mock_llm: bool = True
     allow_mock_fallback: bool = True
-    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_model: str = "gemini-3.5-flash"
     gemini_api_key: str = ""
     analysis_provider: Literal["gemini", "ollama", "mock"] = "gemini"
-    transcription_provider: Literal["gemini", "faster-whisper", "mock"] = "gemini"
+    transcription_provider: Literal["gemini", "faster-whisper", "mock"] = "faster-whisper"
     airgap_mode: bool = False
     local_llm_base_url: str = "http://127.0.0.1:11434"
     local_llm_model: str = "qwen3:4b"
-    local_asr_model: str = "medium"
+    local_asr_model: str = "small"
     local_asr_device: Literal["auto", "cuda", "cpu"] = "auto"
     local_asr_compute_type: str = "int8_float16"
+    local_asr_beam_size: int = Field(default=1, ge=1, le=10)
+    sequential_model_loading: bool = True
     audio_max_bytes: int = Field(default=30_000_000, ge=1, le=200_000_000)
     llm_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     gemini_rpm_limit: int | None = Field(default=None, ge=1)

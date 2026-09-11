@@ -80,3 +80,5 @@ def test_ollama_provider_uses_structured_schema_and_one_local_call(
     assert calls[0][0] == "http://127.0.0.1:11434/api/chat"
     assert calls[0][1]["model"] == "qwen-test:4b"
     assert calls[0][1]["format"]["type"] == "object"
+    assert calls[0][1]["think"] is False
+    assert calls[0][1]["keep_alive"] == 0

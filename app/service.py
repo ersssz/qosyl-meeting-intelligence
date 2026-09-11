@@ -10,7 +10,7 @@ from typing import TypeVar
 
 from app.audit import AuditRepository
 from app.config import Settings
-from app.models import AnalysisRequest, AnalysisResult, SecurityInfo, Transcript
+from app.models import AnalysisRequest, AnalysisResult, ProviderAnalysis, SecurityInfo, Transcript
 from app.providers import (
     AnalysisProvider,
     FasterWhisperProvider,
@@ -20,6 +20,7 @@ from app.providers import (
     MockTranscriptionProvider,
     OllamaProvider,
     ProviderError,
+    SchemaValidationError,
     TranscriptionProvider,
 )
 from app.quota import LocalQuotaBlocked, QuotaManager
@@ -41,6 +42,8 @@ ALLOWED_AUDIO_TYPES = {
     "audio/mp4",
     "audio/x-m4a",
 }
+LONG_MEETING_SECONDS = 10 * 60
+ANALYSIS_CHUNK_SECONDS = 8 * 60
 
 
 class AnalysisUnavailable(RuntimeError):
@@ -156,6 +159,7 @@ class AnalysisService:
         filename: str,
         mime_type: str,
         language: str,
+        asr_model: str | None = None,
     ) -> AnalysisResult:
         total_started = time.perf_counter()
         trace_id = str(uuid.uuid4())
@@ -165,16 +169,33 @@ class AnalysisService:
         timings: dict[str, float] = {}
 
         transcriber = self._select_transcription_provider()
-        requested_transcription_model = self._provider_model(transcriber)
+        requested_transcription_model = (
+            asr_model
+            if getattr(transcriber, "name", "") == "faster-whisper" and asr_model
+            else self._provider_model(transcriber)
+        )
+        network_egress_bytes = 0
         fallback_reason: str | None = None
         status = "ok"
         stage_started = time.perf_counter()
         try:
+            def transcribe() -> Transcript:
+                if getattr(transcriber, "name", "") == "faster-whisper":
+                    return transcriber.transcribe(
+                        audio, filename, mime_type, language, asr_model
+                    )
+                return transcriber.transcribe(audio, filename, mime_type, language)
+
             transcript = self._call_provider(
                 transcriber,
-                lambda: transcriber.transcribe(audio, filename, mime_type, language),
+                transcribe,
             )
         except (ProviderError, LocalQuotaBlocked) as error:
+            network_egress_bytes += int(getattr(transcriber, "last_egress_bytes", 0))
+            if isinstance(error, ProviderError) and error.reason == "empty_or_silent_audio":
+                raise ValueError(
+                    "В записи не обнаружена речь: проверьте файл и уровень громкости."
+                ) from error
             if not self.settings.allow_mock_fallback:
                 timings["transcription"] = self._elapsed_ms(stage_started)
                 timings["total"] = self._elapsed_ms(total_started)
@@ -199,7 +220,9 @@ class AnalysisService:
             )
             status = "fallback"
             transcriber = MockTranscriptionProvider()
-            transcript = transcriber.transcribe(audio, filename, mime_type, language)
+            transcript = transcriber.transcribe(audio, filename, mime_type, language, None)
+        else:
+            network_egress_bytes += int(getattr(transcriber, "last_egress_bytes", 0))
         timings["transcription"] = self._elapsed_ms(stage_started)
 
         request = AnalysisRequest(text=transcript.text, language=language)
@@ -215,7 +238,88 @@ class AnalysisService:
             transcript=transcript,
             transcription_provider=getattr(transcriber, "name", "unknown"),
             transcription_model=requested_transcription_model,
+            network_egress_bytes=network_egress_bytes,
         )
+
+    @staticmethod
+    def _transcript_chunks(transcript: Transcript) -> list[str]:
+        buckets: dict[int, list[str]] = {}
+        for segment in transcript.segments:
+            bucket = int(segment.start_seconds // ANALYSIS_CHUNK_SECONDS)
+            buckets.setdefault(bucket, []).append(
+                f"[{segment.id} {segment.start_seconds:.1f}-{segment.end_seconds:.1f}] "
+                f"{segment.speaker}: {segment.text}"
+            )
+        return ["\n".join(buckets[index]) for index in sorted(buckets)]
+
+    def _analyze_once(
+        self, provider: AnalysisProvider, text: str, language: str
+    ) -> tuple[ProviderAnalysis, int, bool]:
+        """Call once, with one additional request only for Pydantic schema repair."""
+
+        try:
+            analysis = self._call_provider(provider, lambda: provider.analyze(text, language))
+        except SchemaValidationError as error:
+            egress = int(getattr(provider, "last_egress_bytes", 0))
+            repair = getattr(provider, "repair", None)
+            if repair is None:
+                raise
+            raw_response = error.raw_response
+            validation_error = error.validation_error
+            analysis = self._call_provider(
+                provider,
+                lambda: repair(
+                    text, language, raw_response, validation_error
+                ),
+            )
+            egress += int(getattr(provider, "last_egress_bytes", 0))
+            return analysis, egress, True
+        return analysis, int(getattr(provider, "last_egress_bytes", 0)), False
+
+    def _run_analysis(
+        self,
+        provider: AnalysisProvider,
+        masked_text: str,
+        language: str,
+        transcript: Transcript | None,
+        timings: dict[str, float],
+    ) -> tuple[ProviderAnalysis, int]:
+        if transcript is None or transcript.duration_seconds <= LONG_MEETING_SECONDS:
+            analysis, egress, repaired = self._analyze_once(provider, masked_text, language)
+            if repaired:
+                timings["schema_repair"] = 1.0
+            return analysis, egress
+
+        map_started = time.perf_counter()
+        map_results: list[ProviderAnalysis] = []
+        egress = 0
+        repair_count = 0
+        for chunk in self._transcript_chunks(transcript):
+            masked_chunk = mask_pii(chunk).masked_text
+            mapped, outbound, repaired = self._analyze_once(provider, masked_chunk, language)
+            map_results.append(mapped)
+            egress += outbound
+            repair_count += int(repaired)
+        timings["llm_map"] = self._elapsed_ms(map_started)
+
+        reduce_input = (
+            "MAP-REDUCE FINAL PASS. Merge the chunk analyses below into one protocol. "
+            "Keep evidence quotes verbatim; do not invent facts.\n\n"
+            + "\n\n".join(
+                f"Chunk {index}:\n{item.model_dump_json()}"
+                for index, item in enumerate(map_results, start=1)
+            )
+        )
+        reduce_started = time.perf_counter()
+        analysis, outbound, repaired = self._analyze_once(
+            provider, reduce_input, language
+        )
+        timings["llm_reduce"] = self._elapsed_ms(reduce_started)
+        egress += outbound
+        repair_count += int(repaired)
+        if repair_count:
+            timings["schema_repair"] = float(repair_count)
+        return analysis, egress
 
     def _analyze_text(
         self,
@@ -231,6 +335,7 @@ class AnalysisService:
         transcript: Transcript | None = None,
         transcription_provider: str | None = None,
         transcription_model: str | None = None,
+        network_egress_bytes: int = 0,
     ) -> AnalysisResult:
         total_started = total_started or time.perf_counter()
 
@@ -269,6 +374,7 @@ class AnalysisService:
                 security=security,
                 grounded=False,
                 timings_ms=timings,
+                network_egress_bytes=network_egress_bytes,
                 provider="none",
                 model=self.settings.gemini_model,
                 transcription_provider=transcription_provider,
@@ -286,11 +392,16 @@ class AnalysisService:
         status = initial_status
         stage_started = time.perf_counter()
         try:
-            analysis = self._call_provider(
+            analysis, analysis_egress = self._run_analysis(
                 provider,
-                lambda: provider.analyze(masking.masked_text, request.language),
+                masking.masked_text,
+                request.language,
+                transcript,
+                timings,
             )
+            network_egress_bytes += analysis_egress
         except (ProviderError, LocalQuotaBlocked) as error:
+            network_egress_bytes += int(getattr(provider, "last_egress_bytes", 0))
             timings["llm"] = self._elapsed_ms(stage_started)
             if not self.settings.allow_mock_fallback:
                 timings["total"] = self._elapsed_ms(total_started)
@@ -343,6 +454,7 @@ class AnalysisService:
             security=security,
             grounded=findings_grounded and payload_grounded,
             timings_ms=timings,
+            network_egress_bytes=network_egress_bytes,
             provider=getattr(provider, "name", "unknown"),
             model=requested_analysis_model,
             transcription_provider=transcription_provider,

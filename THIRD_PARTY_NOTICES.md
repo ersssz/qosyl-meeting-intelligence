@@ -10,5 +10,8 @@ remain authoritative and must be included when redistributing bundled code or mo
 | Whisper models/code | Speech recognition models | https://github.com/openai/whisper | MIT |
 | Ollama | Optional local LLM runtime | https://github.com/ollama/ollama | MIT |
 | Qwen3-4B-GGUF | Optional local protocol model | https://huggingface.co/Qwen/Qwen3-4B-GGUF | Apache-2.0 |
+| fpdf2 | PDF export | https://github.com/py-pdf/fpdf2 | LGPL-3.0-only |
+| DejaVu Sans | Unicode PDF font | https://dejavu-fonts.github.io/ | DejaVu Fonts License |
 
 Gemini is accessed as an external API and is not redistributed with this repository.
+The bundled DejaVu license text is in `assets/fonts/LICENSE_DEJAVU`.

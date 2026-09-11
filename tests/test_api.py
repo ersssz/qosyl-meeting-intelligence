@@ -46,6 +46,11 @@ def test_full_mock_happy_path_and_report(settings) -> None:
         assert result["trace_id"] in report.text
         assert "VERIFIED" in report.text
 
+        pdf = client.get(f"/api/v1/export/{result['trace_id']}/pdf")
+        assert pdf.status_code == 200
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert pdf.content.startswith(b"%PDF")
+
 
 def test_unknown_preset_returns_422(settings) -> None:
     with TestClient(create_app(settings)) as client:

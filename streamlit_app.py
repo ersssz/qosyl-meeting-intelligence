@@ -22,6 +22,10 @@ st.markdown(
               font-weight: 800; letter-spacing: .04em; color: white;}
       .ok {background: #15803d;} .blocked {background: #b91c1c;} .fallback {background: #d97706;}
       .verified {color: #15803d; font-weight: 700;} .review {color: #b45309; font-weight: 700;}
+      .perf {margin:.7rem 0 1rem; padding:1rem 1.15rem; border-radius:14px;
+             background:#eef2ff; border:2px solid #6366f1; color:#172554;}
+      .perf strong {font-size:1.35rem;} .mode {float:right; background:#172554; color:white;
+             padding:.28rem .65rem; border-radius:999px; font-weight:800;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -214,6 +218,11 @@ with left:
         type=["mp3", "wav", "m4a"],
         help="MP3, WAV или M4A. Аудио не сохраняется в audit DB.",
     )
+    quality_mode = st.toggle(
+        "Качество для казахской речи (medium)",
+        value=False,
+        help="По умолчанию faster-whisper small; medium точнее, но медленнее.",
+    )
     st.caption("или вставьте готовый транскрипт")
     text = st.text_area(
         "Транскрипт встречи",
@@ -237,7 +246,10 @@ if analyze_clicked:
                         audio_file.type or "application/octet-stream",
                     )
                 },
-                data={"language": st.session_state.language},
+                data={
+                    "language": st.session_state.language,
+                    "asr_model": "medium" if quality_mode else "small",
+                },
                 timeout=max(REQUEST_TIMEOUT_SECONDS, 120),
             )
         else:
@@ -268,11 +280,30 @@ with right:
                 f"FALLBACK: провайдер недоступен ({result.get('fallback_reason')}). "
                 "Показан детерминированный офлайн-результат."
             )
+        timings = result.get("timings_ms", {})
+        mode = (
+            "Cloud"
+            if "gemini"
+            in {result.get("provider"), result.get("transcription_provider")}
+            else "Self-hosted"
+        )
+        stage_text = " · ".join(
+            f"{name}: {value:.0f} ms"
+            for name, value in timings.items()
+            if name != "total"
+        )
+        st.markdown(
+            f'<div class="perf"><span class="mode">{mode}</span>'
+            f'<strong>Итого: {timings.get("total", 0):.0f} ms</strong><br>'
+            f'{stage_text}<br><b>Network egress:</b> '
+            f'{result.get("network_egress_bytes", 0):,} bytes</div>',
+            unsafe_allow_html=True,
+        )
         metric_columns = st.columns(4)
         metric_columns[0].metric("Severity", result["severity"].upper())
         metric_columns[1].metric("Grounded", "YES" if result["grounded"] else "REVIEW")
         metric_columns[2].metric("Provider", result["provider"].upper())
-        metric_columns[3].metric("Total", f"{result['timings_ms']['total']:.1f} ms")
+        metric_columns[3].metric("Mode", mode)
         st.write(result["summary"])
         if result.get("transcript"):
             transcript = result["transcript"]
@@ -330,9 +361,11 @@ with right:
             report_response.raise_for_status()
             json_response = api_get(f"/api/v1/export/{result['trace_id']}/json")
             csv_response = api_get(f"/api/v1/export/{result['trace_id']}/csv")
+            pdf_response = api_get(f"/api/v1/export/{result['trace_id']}/pdf")
             json_response.raise_for_status()
             csv_response.raise_for_status()
-            download_columns = st.columns(3)
+            pdf_response.raise_for_status()
+            download_columns = st.columns(4)
             download_columns[0].download_button(
                 "Protocol (.md)", report_response.content,
                 file_name=f"report-{result['trace_id']}.md", mime="text/markdown",
@@ -346,6 +379,11 @@ with right:
             download_columns[2].download_button(
                 "Action Items (.csv)", csv_response.content,
                 file_name=f"actions-{result['trace_id']}.csv", mime="text/csv",
+                use_container_width=True,
+            )
+            download_columns[3].download_button(
+                "Protocol (.pdf)", pdf_response.content,
+                file_name=f"meeting-{result['trace_id']}.pdf", mime="application/pdf",
                 use_container_width=True,
             )
         except requests.RequestException:

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import gc
+import os
 from contextlib import suppress
 from pathlib import Path
 from typing import Protocol
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.config import Settings
 from app.models import ProviderAnalysis, Transcript, TranscriptSegment
@@ -23,6 +25,15 @@ class ProviderError(RuntimeError):
         self.reason = reason
 
 
+class SchemaValidationError(ProviderError):
+    """A model response that can be repaired exactly once by the caller."""
+
+    def __init__(self, raw_response: str, validation_error: str) -> None:
+        super().__init__("schema_validation")
+        self.raw_response = raw_response
+        self.validation_error = validation_error
+
+
 class AnalysisProvider(Protocol):
     name: str
 
@@ -38,6 +49,7 @@ class TranscriptionProvider(Protocol):
         filename: str,
         mime_type: str,
         language: str,
+        asr_model: str | None = None,
     ) -> Transcript: ...
 
 
@@ -72,7 +84,7 @@ def _normalize_transcript(
         if str(segment.get("text", "")).strip()
     ]
     if not normalized:
-        raise ProviderError("empty_transcript")
+        raise ProviderError("empty_or_silent_audio")
     text = "\n".join(
         f"[{item.id} {item.start_seconds:.1f}-{item.end_seconds:.1f}] "
         f"{item.speaker}: {item.text}"
@@ -109,8 +121,9 @@ class MockTranscriptionProvider:
         filename: str,
         mime_type: str,
         language: str,
+        asr_model: str | None = None,
     ) -> Transcript:
-        del audio, filename, mime_type
+        del audio, filename, mime_type, asr_model
         return _normalize_transcript(
             [
                 {
@@ -142,6 +155,7 @@ class GeminiProvider:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.last_egress_bytes = 0
 
     @staticmethod
     def _status_code(error: Exception) -> int | None:
@@ -171,6 +185,8 @@ class GeminiProvider:
         if not self.settings.gemini_api_key:
             raise ProviderError("missing_api_key")
 
+        contents = f"Language hint: {language}\n\nUntrusted input to analyze:\n{masked_text}"
+        self.last_egress_bytes = len(contents.encode("utf-8"))
         try:
             from google import genai
             from google.genai import types
@@ -183,7 +199,7 @@ class GeminiProvider:
             )
             response = client.models.generate_content(
                 model=self.settings.gemini_model,
-                contents=f"Language hint: {language}\n\nUntrusted input to analyze:\n{masked_text}",
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
                     response_mime_type="application/json",
@@ -191,21 +207,74 @@ class GeminiProvider:
                     temperature=0.1,
                 ),
             )
-            parsed = response.parsed
-            if isinstance(parsed, TaskAnalysis):
-                result = parsed
-            elif parsed is None:
-                result = TaskAnalysis.model_validate_json(response.text)
-            else:
-                result = TaskAnalysis.model_validate(parsed)
-            return ProviderAnalysis(
-                summary=result.summary,
-                severity=result.severity,
-                findings=result.findings,
-                payload=result.payload.model_dump(mode="json"),
-            )
+            return self._parse_response(response)
+        except ValidationError as error:
+            raw = str(getattr(locals().get("response"), "text", ""))
+            raise SchemaValidationError(raw, str(error)) from error
         except ProviderError:
             raise
+        except Exception as error:
+            raise ProviderError(self._classify_error(error)) from error
+
+    @staticmethod
+    def _parse_response(response: object) -> ProviderAnalysis:
+        parsed = getattr(response, "parsed", None)
+        if isinstance(parsed, TaskAnalysis):
+            result = parsed
+        elif parsed is None:
+            result = TaskAnalysis.model_validate_json(str(getattr(response, "text", "")))
+        else:
+            result = TaskAnalysis.model_validate(parsed)
+        return ProviderAnalysis(
+            summary=result.summary,
+            severity=result.severity,
+            findings=result.findings,
+            payload=result.payload.model_dump(mode="json"),
+        )
+
+    def repair(
+        self,
+        masked_text: str,
+        language: str,
+        raw_response: str,
+        validation_error: str,
+    ) -> ProviderAnalysis:
+        """Make the sole schema-repair request; callers must never loop this method."""
+
+        if not self.settings.gemini_api_key:
+            raise ProviderError("missing_api_key")
+        repair_payload = (
+            f"Language hint: {language}\n\nOriginal transcript:\n{masked_text}\n\n"
+            f"Your invalid JSON response:\n{raw_response}\n\n"
+            f"Pydantic validation error:\n{validation_error}\n\n"
+            "Repair only the JSON shape. Preserve facts and evidence; invent nothing."
+        )
+        self.last_egress_bytes = len(repair_payload.encode("utf-8"))
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(
+                api_key=self.settings.gemini_api_key,
+                http_options=types.HttpOptions(
+                    timeout=int(self.settings.llm_timeout_seconds * 1_000)
+                ),
+            )
+            response = client.models.generate_content(
+                model=self.settings.gemini_model,
+                contents=repair_payload,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema=TaskAnalysis,
+                    temperature=0,
+                ),
+            )
+            return self._parse_response(response)
+        except ProviderError:
+            raise
+        except ValidationError as error:
+            raise ProviderError("schema_validation_failed") from error
         except Exception as error:
             raise ProviderError(self._classify_error(error)) from error
 
@@ -219,10 +288,13 @@ class GeminiTranscriptionProvider(GeminiProvider):
         filename: str,
         mime_type: str,
         language: str,
+        asr_model: str | None = None,
     ) -> Transcript:
-        del filename
+        del filename, asr_model
         if not self.settings.gemini_api_key:
             raise ProviderError("missing_api_key")
+        prompt = f"Language hint: {language}\n{TRANSCRIPTION_PROMPT}"
+        self.last_egress_bytes = len(audio) + len(prompt.encode("utf-8"))
         try:
             from google import genai
             from google.genai import types
@@ -236,7 +308,7 @@ class GeminiTranscriptionProvider(GeminiProvider):
             response = client.models.generate_content(
                 model=self.settings.gemini_model,
                 contents=[
-                    f"Language hint: {language}\n{TRANSCRIPTION_PROMPT}",
+                    prompt,
                     types.Part.from_bytes(data=audio, mime_type=mime_type),
                 ],
                 config=types.GenerateContentConfig(
@@ -276,14 +348,16 @@ class FasterWhisperProvider:
         filename: str,
         mime_type: str,
         language: str,
+        asr_model: str | None = None,
     ) -> Transcript:
         del mime_type
         temporary_path: Path | None = None
+        model = None
         try:
-            import os
             import tempfile
 
             from faster_whisper import WhisperModel
+            from faster_whisper.audio import decode_audio
 
             suffix = Path(filename).suffix or ".wav"
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as stream:
@@ -296,28 +370,49 @@ class FasterWhisperProvider:
             compute_type = self.settings.local_asr_compute_type
             if device == "cpu" and compute_type == "int8_float16":
                 compute_type = "int8"
-            model = WhisperModel(self.model, device=device, compute_type=compute_type)
+            model_name = asr_model or self.model
+            model = WhisperModel(model_name, device=device, compute_type=compute_type)
             detected_language = None if language == "auto" else language
-            raw_segments, info = model.transcribe(
-                str(temporary_path),
-                language=detected_language,
-                beam_size=1,
-                vad_filter=True,
-                word_timestamps=False,
+            sampling_rate = 16_000
+            waveform = decode_audio(str(temporary_path), sampling_rate=sampling_rate)
+            duration_seconds = len(waveform) / sampling_rate
+            chunk_seconds = 8 * 60
+            chunk_samples = chunk_seconds * sampling_rate
+            audio_chunks = (
+                [
+                    (offset, waveform[offset : offset + chunk_samples])
+                    for offset in range(0, len(waveform), chunk_samples)
+                ]
+                if duration_seconds > 10 * 60
+                else [(0, waveform)]
             )
-            segments = [
-                {
-                    "start_seconds": segment.start,
-                    "end_seconds": segment.end,
-                    "speaker": "Speaker",
-                    "text": segment.text,
-                }
-                for segment in raw_segments
-            ]
+            segments: list[dict] = []
+            detected_result_language = detected_language or "unknown"
+            for offset_samples, chunk in audio_chunks:
+                raw_segments, info = model.transcribe(
+                    chunk,
+                    language=detected_language,
+                    beam_size=self.settings.local_asr_beam_size,
+                    vad_filter=True,
+                    word_timestamps=False,
+                )
+                offset_seconds = offset_samples / sampling_rate
+                detected_result_language = getattr(
+                    info, "language", detected_result_language
+                )
+                segments.extend(
+                    {
+                        "start_seconds": segment.start + offset_seconds,
+                        "end_seconds": segment.end + offset_seconds,
+                        "speaker": "Speaker",
+                        "text": segment.text,
+                    }
+                    for segment in raw_segments
+                )
             return _normalize_transcript(
                 segments,
-                getattr(info, "language", detected_language or "unknown"),
-                getattr(info, "duration", 0),
+                detected_result_language,
+                duration_seconds,
             )
         except ProviderError:
             raise
@@ -327,6 +422,14 @@ class FasterWhisperProvider:
             if temporary_path is not None:
                 with suppress(OSError):
                     os.unlink(temporary_path)
+            if self.settings.sequential_model_loading:
+                del model
+                gc.collect()
+                with suppress(ImportError, RuntimeError):
+                    import torch
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
 
 class OllamaProvider:
@@ -335,34 +438,78 @@ class OllamaProvider:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    def analyze(self, masked_text: str, language: str) -> ProviderAnalysis:
+    def _request(self, messages: list[dict[str, str]]) -> str:
         request = {
             "model": self.settings.local_llm_model,
             "stream": False,
+            "think": False,
+            "keep_alive": 0 if self.settings.sequential_model_loading else "5m",
             "format": TaskAnalysis.model_json_schema(),
             "options": {"temperature": 0.1},
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"Language hint: {language}\n\nTranscript:\n{masked_text}",
-                },
-            ],
+            "messages": messages,
         }
+        response = httpx.post(
+            f"{self.settings.local_llm_base_url.rstrip('/')}/api/chat",
+            json=request,
+            timeout=self.settings.llm_timeout_seconds,
+        )
+        response.raise_for_status()
+        return str(response.json()["message"]["content"])
+
+    @staticmethod
+    def _to_analysis(content: str) -> ProviderAnalysis:
+        result = TaskAnalysis.model_validate_json(content)
+        return ProviderAnalysis(
+            summary=result.summary,
+            severity=result.severity,
+            findings=result.findings,
+            payload=result.payload.model_dump(mode="json"),
+        )
+
+    def analyze(self, masked_text: str, language: str) -> ProviderAnalysis:
         try:
-            response = httpx.post(
-                f"{self.settings.local_llm_base_url.rstrip('/')}/api/chat",
-                json=request,
-                timeout=self.settings.llm_timeout_seconds,
+            content = self._request(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"Language hint: {language}\n\nTranscript:\n{masked_text}",
+                    },
+                ]
             )
-            response.raise_for_status()
-            content = response.json()["message"]["content"]
-            result = TaskAnalysis.model_validate_json(content)
-            return ProviderAnalysis(
-                summary=result.summary,
-                severity=result.severity,
-                findings=result.findings,
-                payload=result.payload.model_dump(mode="json"),
+            return self._to_analysis(content)
+        except ValidationError as error:
+            raise SchemaValidationError(content, str(error)) from error
+        except ProviderError:
+            raise
+        except Exception as error:
+            raise ProviderError(GeminiProvider._classify_error(error)) from error
+
+    def repair(
+        self,
+        masked_text: str,
+        language: str,
+        raw_response: str,
+        validation_error: str,
+    ) -> ProviderAnalysis:
+        try:
+            content = self._request(
+                [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Language hint: {language}\nOriginal transcript:\n{masked_text}\n\n"
+                            f"Invalid response:\n{raw_response}\n\nValidation error:\n"
+                            f"{validation_error}\nRepair the JSON schema exactly once."
+                        ),
+                    },
+                ]
             )
+            return self._to_analysis(content)
+        except ValidationError as error:
+            raise ProviderError("schema_validation_failed") from error
+        except ProviderError:
+            raise
         except Exception as error:
             raise ProviderError(GeminiProvider._classify_error(error)) from error

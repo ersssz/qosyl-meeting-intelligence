@@ -81,6 +81,7 @@ class AnalysisResult(BaseModel):
     security: SecurityInfo
     grounded: bool
     timings_ms: dict[str, float]
+    network_egress_bytes: int = Field(default=0, ge=0)
     provider: str
     model: str
     transcription_provider: str | None = None
