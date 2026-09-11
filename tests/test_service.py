@@ -27,7 +27,23 @@ class SpyProvider:
                     confidence_score=0.8,
                 )
             ],
-            payload={"category": "security", "risk_score": 50},
+            payload={
+                "category": "security",
+                "risk_score": 50,
+                "topics": [
+                    {
+                        "title": "Инцидент",
+                        "theses": [
+                            {
+                                "text": "Клиент сообщил об инциденте",
+                                "segment_ids": ["seg_0001"],
+                                "evidence": "Клиент [PII:IIN] сообщил об инциденте",
+                                "confidence_score": 0.8,
+                            }
+                        ],
+                    }
+                ],
+            },
         )
 
 
@@ -101,4 +117,3 @@ def test_provider_failure_without_fallback_returns_traceable_error(settings) -> 
     assert event is not None
     assert event["status"] == "error"
     assert event["fallback_reason"] == "rate_limited"
-

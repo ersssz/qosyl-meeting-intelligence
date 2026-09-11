@@ -12,7 +12,7 @@ from app.models import (
     Transcript,
     TranscriptSegment,
 )
-from app.providers import ProviderError
+from app.providers import ProviderError, _normalize_transcript
 from app.service import AnalysisService
 
 
@@ -55,6 +55,24 @@ class MeetingTranscriber:
 
 
 reti = "Решили запустить пилот в пятницу."
+
+
+def test_anonymous_speaker_labels_get_stable_numbers() -> None:
+    transcript = _normalize_transcript(
+        [
+            {"start_seconds": 0, "end_seconds": 1, "speaker": "SPEAKER_00", "text": "Да."},
+            {"start_seconds": 1, "end_seconds": 2, "speaker": "SPEAKER_01", "text": "Нет."},
+            {"start_seconds": 2, "end_seconds": 3, "speaker": "SPEAKER_00", "text": "Хорошо."},
+        ],
+        "ru",
+        3,
+    )
+
+    assert [segment.speaker for segment in transcript.segments] == [
+        "Speaker 1",
+        "Speaker 2",
+        "Speaker 1",
+    ]
 
 
 class MeetingAnalyzer:

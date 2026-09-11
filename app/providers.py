@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import os
+import re
 from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
@@ -57,7 +58,7 @@ class TranscriptionProvider(Protocol):
 class _GeminiTranscriptSegment(BaseModel):
     start_seconds: float = Field(ge=0)
     end_seconds: float = Field(ge=0)
-    speaker: str = "Speaker"
+    speaker: str = "Speaker 1"
     text: str = Field(min_length=1)
 
 
@@ -67,9 +68,32 @@ class _GeminiTranscript(BaseModel):
     segments: list[_GeminiTranscriptSegment] = Field(min_length=1)
 
 
+_ANONYMOUS_SPEAKER_RE = re.compile(r"^speaker(?:[\s_-]*\d+)?$", re.IGNORECASE)
+
+
+def _number_anonymous_speakers(segments: list[dict]) -> list[dict]:
+    """Give stable display numbers to anonymous labels without inventing turns."""
+
+    labels: dict[str, str] = {}
+    normalized: list[dict] = []
+    for segment in segments:
+        item = dict(segment)
+        raw_speaker = str(item.get("speaker") or "Speaker").strip()
+        if _ANONYMOUS_SPEAKER_RE.fullmatch(raw_speaker):
+            key = raw_speaker.casefold().replace("_", " ").replace("-", " ")
+            key = " ".join(key.split())
+            labels.setdefault(key, f"Speaker {len(labels) + 1}")
+            item["speaker"] = labels[key]
+        else:
+            item["speaker"] = raw_speaker
+        normalized.append(item)
+    return normalized
+
+
 def _normalize_transcript(
     segments: list[dict], language: str, duration_seconds: float = 0
 ) -> Transcript:
+    segments = _number_anonymous_speakers(segments)
     normalized = [
         TranscriptSegment(
             id=f"seg_{index:04d}",
@@ -78,7 +102,7 @@ def _normalize_transcript(
                 float(segment.get("end_seconds", segment.get("start_seconds", 0))),
                 float(segment.get("start_seconds", 0)),
             ),
-            speaker=str(segment.get("speaker") or "Speaker"),
+            speaker=str(segment.get("speaker") or "Speaker 1"),
             text=str(segment["text"]).strip(),
         )
         for index, segment in enumerate(segments, start=1)
@@ -87,8 +111,7 @@ def _normalize_transcript(
     if not normalized:
         raise ProviderError("empty_or_silent_audio")
     text = "\n".join(
-        f"[{item.id} {item.start_seconds:.1f}-{item.end_seconds:.1f}] "
-        f"{item.speaker}: {item.text}"
+        f"[{item.id} {item.start_seconds:.1f}-{item.end_seconds:.1f}] {item.speaker}: {item.text}"
         for item in normalized
     )
     return Transcript(
@@ -242,9 +265,7 @@ class GeminiProvider:
             return self._parse_response(response)
         except ValidationError as error:
             response = locals().get("response")
-            raw = str(
-                getattr(response, "output_text", None) or getattr(response, "text", "")
-            )
+            raw = str(getattr(response, "output_text", None) or getattr(response, "text", ""))
             raise SchemaValidationError(raw, str(error)) from error
         except ProviderError:
             raise
@@ -457,14 +478,12 @@ class FasterWhisperProvider:
                     word_timestamps=False,
                 )
                 offset_seconds = offset_samples / sampling_rate
-                detected_result_language = getattr(
-                    info, "language", detected_result_language
-                )
+                detected_result_language = getattr(info, "language", detected_result_language)
                 segments.extend(
                     {
                         "start_seconds": segment.start + offset_seconds,
                         "end_seconds": segment.end + offset_seconds,
-                        "speaker": "Speaker",
+                        "speaker": "Speaker 1",
                         "text": segment.text,
                     }
                     for segment in raw_segments

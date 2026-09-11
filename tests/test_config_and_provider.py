@@ -62,15 +62,10 @@ def test_provider_error_classification() -> None:
     assert GeminiProvider._classify_error(RateLimitError()) == "rate_limited"
     assert GeminiProvider._classify_error(DeadlineError()) == "timeout"
     assert GeminiProvider._classify_error(httpx.ReadTimeout("late")) == "timeout"
-    assert (
-        GeminiProvider._classify_error(httpx.ConnectError("offline"))
-        == "network_error"
-    )
+    assert GeminiProvider._classify_error(httpx.ConnectError("offline")) == "network_error"
 
 
-def test_ollama_provider_uses_structured_schema_and_one_local_call(
-    monkeypatch, settings
-) -> None:
+def test_ollama_provider_uses_structured_schema_and_one_local_call(monkeypatch, settings) -> None:
     settings.local_llm_model = "qwen-test:4b"
     calls = []
 
@@ -86,7 +81,18 @@ def test_ollama_provider_uses_structured_schema_and_one_local_call(
                 "payload": {
                     "meeting_title": "Тест",
                     "executive_summary": ["Первое.", "Второе.", "Третье."],
-                    "topics": [],
+                    "topics": [
+                        {
+                            "title": "Тест",
+                            "theses": [
+                                {
+                                    "text": "Обсуждён тестовый транскрипт.",
+                                    "segment_ids": ["seg_0001"],
+                                    "evidence": "Тестовый транскрипт",
+                                }
+                            ],
+                        }
+                    ],
                     "decisions": [],
                     "open_questions": [],
                     "action_items": [],
@@ -125,7 +131,18 @@ def test_gemini_provider_uses_interactions_structured_output(monkeypatch, settin
         "payload": {
             "meeting_title": "Статус проекта",
             "executive_summary": ["Первое.", "Второе.", "Третье."],
-            "topics": [],
+            "topics": [
+                {
+                    "title": "Статус",
+                    "theses": [
+                        {
+                            "text": "Обсуждён тестовый транскрипт.",
+                            "segment_ids": ["seg_0001"],
+                            "evidence": "Тестовый транскрипт",
+                        }
+                    ],
+                }
+            ],
             "decisions": [],
             "open_questions": [],
             "action_items": [],
@@ -154,16 +171,14 @@ def test_gemini_provider_uses_interactions_structured_output(monkeypatch, settin
     schema = calls[0]["response_format"]["schema"]
     assert schema["type"] == "object"
     assert "$defs" not in schema
-    owner = schema["properties"]["payload"]["properties"]["action_items"]["items"][
-        "properties"
-    ]["owner"]
+    owner = schema["properties"]["payload"]["properties"]["action_items"]["items"]["properties"][
+        "owner"
+    ]
     assert owner["type"] == ["string", "null"]
     assert calls[0]["store"] is False
 
 
-def test_windows_cuda_wheel_directories_are_prepended_to_path(
-    monkeypatch, tmp_path
-) -> None:
+def test_windows_cuda_wheel_directories_are_prepended_to_path(monkeypatch, tmp_path) -> None:
     cublas = tmp_path / "nvidia" / "cublas"
     cudnn = tmp_path / "nvidia" / "cudnn"
     (cublas / "bin").mkdir(parents=True)

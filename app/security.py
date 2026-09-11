@@ -20,6 +20,10 @@ _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 _WHITESPACE_RE = re.compile(r"\s+")
 _NON_WORD_RE = re.compile(r"[\W_]+")
 _TRAILING_PUNCTUATION = " \t\r\n.,;:!?…"
+_TRANSCRIPT_SEGMENT_RE = re.compile(
+    r"(?m)^\[(seg_\d{4})(?:\s+[^\]]*)?\]\s*(.*?)(?=\n\[seg_\d{4}(?:\s+[^\]]*)?\]|\Z)",
+    re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -215,6 +219,16 @@ def normalize_for_grounding(text: str) -> str:
     return normalized.rstrip(_TRAILING_PUNCTUATION)
 
 
+def _grounding_segments(masked_source: str) -> dict[str, str]:
+    """Return canonical transcript slices; plain text is one synthetic segment."""
+
+    segments = {
+        segment_id: segment_text.strip()
+        for segment_id, segment_text in _TRANSCRIPT_SEGMENT_RE.findall(masked_source)
+    }
+    return segments or {"seg_0001": masked_source}
+
+
 def verify_findings(findings: list[Finding], masked_source: str) -> tuple[list[Finding], bool]:
     normalized_source = normalize_for_grounding(masked_source)
     verified: list[Finding] = []
@@ -240,11 +254,15 @@ def verify_payload_evidence(payload: dict, masked_source: str) -> tuple[dict, bo
     """Ground every evidence-bearing meeting item without removing model output."""
 
     normalized_source = normalize_for_grounding(masked_source)
+    source_segments = {
+        segment_id: normalize_for_grounding(segment_text)
+        for segment_id, segment_text in _grounding_segments(masked_source).items()
+    }
     grounded = True
     verified_payload = dict(payload)
 
     topics = payload.get("topics", [])
-    if not isinstance(topics, list):
+    if not isinstance(topics, list) or not topics:
         grounded = False
     else:
         verified_topics = []
@@ -269,7 +287,24 @@ def verify_payload_evidence(payload: dict, masked_source: str) -> tuple[dict, bo
                 thesis = dict(raw_thesis)
                 evidence = str(thesis.get("evidence", ""))
                 normalized_evidence = normalize_for_grounding(evidence)
-                is_verified = bool(normalized_evidence) and normalized_evidence in normalized_source
+                segment_ids = thesis.get("segment_ids", [])
+                referenced_segments = (
+                    [source_segments[item] for item in segment_ids if item in source_segments]
+                    if isinstance(segment_ids, list)
+                    else []
+                )
+                references_are_valid = (
+                    isinstance(segment_ids, list)
+                    and bool(segment_ids)
+                    and len(referenced_segments) == len(segment_ids)
+                )
+                is_verified = (
+                    bool(normalized_evidence)
+                    and references_are_valid
+                    and any(
+                        normalized_evidence in segment_text for segment_text in referenced_segments
+                    )
+                )
                 original_score = float(thesis.get("confidence_score", 0.8))
                 thesis["verified_in_source"] = is_verified
                 thesis["needs_human_review"] = not is_verified

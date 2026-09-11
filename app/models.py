@@ -26,7 +26,7 @@ class TranscriptSegment(BaseModel):
     id: str = Field(pattern=r"^seg_\d{4}$")
     start_seconds: float = Field(ge=0)
     end_seconds: float = Field(ge=0)
-    speaker: str = Field(default="Speaker", min_length=1, max_length=100)
+    speaker: str = Field(default="Speaker 1", min_length=1, max_length=100)
     text: str = Field(min_length=1, max_length=5_000)
 
     @field_validator("end_seconds")
