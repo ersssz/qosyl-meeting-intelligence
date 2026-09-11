@@ -563,7 +563,7 @@ with left:
     audio_file = st.file_uploader(
         "Загрузите запись встречи",
         type=["mp3", "wav", "m4a"],
-        help="MP3, WAV или M4A. Аудио не сохраняется в audit DB.",
+        help="MP3, WAV или M4A. Язык определяется автоматически; аудио не сохраняется.",
     )
     quality_mode = st.toggle(
         "Качество для казахской речи (medium)",
@@ -605,7 +605,7 @@ if analyze_clicked:
                         )
                     },
                     data={
-                        "language": st.session_state.language,
+                        "language": "auto",
                         "asr_model": "medium" if quality_mode else "small",
                     },
                     timeout=max(REQUEST_TIMEOUT_SECONDS, 120),
